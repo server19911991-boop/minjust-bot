@@ -1,0 +1,66 @@
+{
+  "users": {
+    "551931619": {
+      "exam20": {
+        "total": 140,
+        "correct": 110,
+        "best": 95.0
+      },
+      "admin": {
+        "total": 40,
+        "correct": 32,
+        "best": 85.0
+      },
+      "civil": {
+        "total": 40,
+        "correct": 34,
+        "best": 95.0
+      },
+      "general": {
+        "total": 20,
+        "correct": 16,
+        "best": 80.0
+      },
+      "bankrupt": {
+        "total": 13,
+        "correct": 9,
+        "best": 69.2
+      },
+      "labor": {
+        "total": 20,
+        "correct": 20,
+        "best": 100.0
+      }
+    }
+  },
+  "global": {
+    "admin": {
+      "total": 40,
+      "correct": 32
+    },
+    "civil": {
+      "total": 40,
+      "correct": 34
+    },
+    "criminal": {
+      "total": 0,
+      "correct": 0
+    },
+    "bankrupt": {
+      "total": 13,
+      "correct": 9
+    },
+    "labor": {
+      "total": 20,
+      "correct": 20
+    },
+    "general": {
+      "total": 20,
+      "correct": 16
+    },
+    "exam20": {
+      "total": 140,
+      "correct": 110
+    }
+  }
+}
