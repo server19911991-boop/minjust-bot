@@ -1,6 +1,6 @@
 """
 ЮРИДИЧЕСКИЙ БОТ ДЛЯ ПОДГОТОВКИ К ЭКЗАМЕНУ МИНЮСТА
-Версия 2.2 - категории определяются по маркерам в article
+Версия 2.3 - исправлена проблема с ID категорий
 """
 
 import asyncio
@@ -9,6 +9,7 @@ import logging
 import os
 import random
 import secrets
+import sys
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
@@ -37,6 +38,22 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# ==================== КАРТА КАТЕГОРИЙ ДЛЯ ИСПРАВЛЕНИЯ ID ====================
+CATEGORY_MAP = {
+    'constitutional': 'constitutional',
+    'civil': 'civil_law',
+    'executive': 'executive_production',
+    'criminal': 'criminal_tax_law',
+    'admin': 'admin_law',
+    'business': 'business_law',
+    'bankrupt': 'bankruptcy',
+    'concession': 'concession_investment',
+    'control': 'control_legalization',
+    'licensing': 'licensing_ethics',
+    'ministry': 'ministry_exam',
+    'general': 'general'
+}
 
 # ==================== ДАТА-КЛАССЫ ====================
 @dataclass
@@ -371,11 +388,10 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
 
 def get_count_choice_keyboard(category_id: str = None) -> InlineKeyboardMarkup:
     """Клавиатура для выбора количества вопросов"""
-    # Исправляем баг: если пришел "ministry", меняем на "ministry_exam"
-    if category_id == "ministry":
-        category_id = "ministry_exam"
+    # Исправляем ID категории, если он пришел в коротком виде
+    if category_id in CATEGORY_MAP:
+        category_id = CATEGORY_MAP[category_id]
     
-    # Если category_id = None или "all", используем "all"
     cat_id = category_id if category_id and category_id != "all" else "all"
     buttons = [
         [
@@ -570,9 +586,9 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     count = int(parts[1])
     category_id = parts[2] if len(parts) > 2 else "all"
     
-    # Исправляем баг: если пришел "ministry", меняем на "ministry_exam"
-    if category_id == "ministry":
-        category_id = "ministry_exam"
+    # Исправляем ID категории, если он пришел в коротком виде
+    if category_id in CATEGORY_MAP:
+        category_id = CATEGORY_MAP[category_id]
     
     # Отладочный вывод
     logger.info(f"Выбор количества: count={count}, category_id={category_id}")
