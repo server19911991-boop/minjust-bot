@@ -52,6 +52,7 @@ CATEGORY_MAP = {
     'control': 'control_legalization',
     'licensing': 'licensing_ethics',
     'ministry': 'ministry_exam',
+    'labor': 'labor_law',
     'general': 'general'
 }
 
