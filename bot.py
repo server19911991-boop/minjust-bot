@@ -83,6 +83,117 @@ class Question:
 @dataclass
 
 # ==================== ЗАГРУЗКА ДАННЫХ ====================
+
+# ==================== КАТЕГОРИИ ВОПРОСОВ ====================
+class QuestionCategory:
+    CATEGORIES = {
+        'constitutional': {
+            'name': 'Конституционное право',
+            'emoji': '⚖️',
+            'description': 'Вопросы по Конституции Республики Беларусь',
+            'marker': '(Блок Конституционное право)'
+        },
+        'civil_law': {
+            'name': 'Гражданское законодательство',
+            'emoji': '📘',
+            'description': 'Вопросы по Гражданскому кодексу (ГК)',
+            'marker': '(Блок Гражданское право)'
+        },
+        'labor_law': {
+            'name': 'Трудовое законодательство',
+            'emoji': '👔',
+            'description': 'Вопросы по Трудовому кодексу (ТК)',
+            'marker': '(Блок Трудовое право)'
+        },
+        'civil_procedure': {
+            'name': 'Гражданское судопроизводство',
+            'emoji': '⚖️',
+            'description': 'Вопросы по Кодексу гражданского судопроизводства (КГС)',
+            'marker': '(Блок Гражданское судопроизводство)'
+        },
+        'executive_production': {
+            'name': 'Исполнительное производство',
+            'emoji': '⚙️',
+            'description': 'Вопросы по Закону об исполнительном производстве',
+            'marker': '(Блок Исполнительное производство)'
+        },
+        'criminal_tax_law': {
+            'name': 'Налоговое и уголовное законодательство',
+            'emoji': '🔒',
+            'description': 'Вопросы по УК и НК',
+            'marker': '(Блок Налоговое и уголовное законодательство)'
+        },
+        'admin_law': {
+            'name': 'Административное право',
+            'emoji': '📋',
+            'description': 'Вопросы по КоАП и ПИКоАП',
+            'marker': '(Блок Административное право)'
+        },
+        'business_law': {
+            'name': 'Закон о хозяйственных обществах',
+            'emoji': '🏢',
+            'description': 'Вопросы по Закону о хозяйственных обществах',
+            'marker': '(Блок Закон о хозяйственных обществах)'
+        },
+        'bankruptcy': {
+            'name': 'Банкротство',
+            'emoji': '🏚️',
+            'description': 'Вопросы по Закону о банкротстве',
+            'marker': '(Блок Банкротство)'
+        },
+        'concession_investment': {
+            'name': 'Концессия и инвестиции',
+            'emoji': '💼',
+            'description': 'Вопросы по Законам о концессиях и инвестициях',
+            'marker': '(Блок Концессия и инвестиции)'
+        },
+        'control_legalization': {
+            'name': 'Проверки и легализация',
+            'emoji': '🔍',
+            'description': 'Вопросы по Закону о легализации и Указу о проверках',
+            'marker': '(Блок Проверки и легализация)'
+        },
+        'licensing_ethics': {
+            'name': 'Лицензирование и этика',
+            'emoji': '📜',
+            'description': 'Вопросы по лицензированию, правилам и этике',
+            'marker': '(Блок Лицензирование и этика)'
+        },
+        'ministry_exam': {
+            'name': 'Вопросы с экзамена Минюста',
+            'emoji': '📝',
+            'description': 'Вопросы, которые были на реальных экзаменах в Министерстве юстиции',
+            'marker': '(Блок Вопросы с экзамена Минюста)'
+        }
+    }
+    
+    @classmethod
+    def get_all_categories(cls) -> List[dict]:
+        return [
+            {
+                'id': cat_id,
+                'name': data['name'],
+                'emoji': data['emoji'],
+                'description': data['description'],
+                'marker': data['marker']
+            }
+            for cat_id, data in cls.CATEGORIES.items()
+        ]
+    
+    @classmethod
+    def get_category(cls, cat_id: str) -> Optional[dict]:
+        return cls.CATEGORIES.get(cat_id)
+    
+    @classmethod
+    def categorize_question(cls, question: dict) -> str:
+        article = question.get('article', '')
+        for cat_id, data in cls.CATEGORIES.items():
+            marker = data['marker']
+            if marker.lower() in article.lower():
+                return cat_id
+        return 'general'
+
+
 class QuestionLoader:
     def __init__(self):
         self.questions: List[Question] = []
