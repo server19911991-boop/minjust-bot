@@ -57,6 +57,29 @@ CATEGORY_MAP = {
 }
 
 # ==================== ДАТА-КЛАССЫ ====================
+
+@dataclass
+class Question:
+    """Модель вопроса"""
+    id: int
+    question: str
+    options: List[str]
+    correct_options: List[int]
+    article: str = ""
+    category: str = "general"
+    explanation: str = ""
+    is_from_exam: bool = False
+    
+    def get_correct_texts(self) -> List[str]:
+        return [self.options[i] for i in self.correct_options]
+    
+    def is_correct(self, selected: Set[int]) -> bool:
+        return set(self.correct_options) == selected
+    
+    def get_correct_numbers(self) -> List[int]:
+        return [i + 1 for i in sorted(self.correct_options)]
+
+
 @dataclass
 class UserSession:
     """Сессия пользователя"""
