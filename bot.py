@@ -606,9 +606,13 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     category_id = parts[2] if len(parts) > 2 else "all"
     logger.info(f"🔍 ВЫБОР КОЛИЧЕСТВА: count={count}, category={category_id}")
     
-    if category_id in CATEGORY_MAP:
+    # Преобразуем только если ID равен "civil" (для экзамена)
+    if category_id in CATEGORY_MAP and category_id == "civil":
         logger.info(f"🔍 KEYBOARD: преобразование {category_id} -> {CATEGORY_MAP[category_id]}")
         category_id = CATEGORY_MAP[category_id]
+    elif category_id in CATEGORY_MAP:
+        # Для всех остальных ID оставляем как есть
+        logger.info(f"🔍 KEYBOARD: ID {category_id} не преобразуется")
     logger.info(f"🔍 KEYBOARD: category_id после преобразования = {category_id}")
     
     session = get_user_session(user_id)
