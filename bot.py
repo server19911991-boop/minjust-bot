@@ -601,6 +601,7 @@ async def start_test(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.startswith("count_"))
 async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
+    logger.info(f"🔍 ПОЛНЫЙ CALLBACK: {callback.data}")
     parts = callback.data.split("_")
     count = int(parts[1])
     category_id = parts[2] if len(parts) > 2 else "all"
