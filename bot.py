@@ -574,7 +574,6 @@ async def cmd_guest_invite(message: Message):
         await message.answer("❌ У вас нет прав для этой команды")
         return
     
-    # Парсим команду: /guest_invite 24 (часов)
     parts = message.text.split()
     hours = int(parts[1]) if len(parts) > 1 else 24
     
@@ -603,7 +602,6 @@ async def cmd_guest_invite(message: Message):
 "
         f"📤 Отправьте эту ссылку пользователю."
     )
-
 @dp.message(Command("guest_list"))
 async def cmd_guest_list(message: Message):
     """Показывает активные гостевые инвайты"""
