@@ -97,6 +97,76 @@ class Category:
         return f"{self.emoji} {self.name} ({self.count})"
 
 @dataclass
+
+# ==================== УПРАВЛЕНИЕ ГОСТЕВЫМИ ИНВАЙТАМИ ====================
+class GuestInviteManager:
+    def __init__(self):
+        self.invites_file = "guest_invites.json"
+        self.invites = {}
+        self.load_invites()
+    
+    def load_invites(self):
+        try:
+            with open(self.invites_file, 'r', encoding='utf-8') as f:
+                self.invites = json.load(f)
+        except FileNotFoundError:
+            self.save_invites()
+    
+    def save_invites(self):
+        with open(self.invites_file, 'w', encoding='utf-8') as f:
+            json.dump(self.invites, f, ensure_ascii=False, indent=2)
+    
+    def create_invite(self, created_by: int, hours: int = 24) -> str:
+        """Создает инвайт на определенное количество часов"""
+        code = secrets.token_hex(8).upper()
+        code = '-'.join([code[i:i+4] for i in range(0, len(code), 4)])
+        
+        expires = time.time() + hours * 3600
+        
+        self.invites[code] = {
+            'created_by': created_by,
+            'created_at': time.time(),
+            'expires': expires,
+            'hours': hours,
+            'used_by': [],
+            'active': True,
+            'max_uses': 1
+        }
+        
+        self.save_invites()
+        return code
+    
+    def use_invite(self, code: str, user_id: int, username: str = None) -> Tuple[bool, str, Optional[int]]:
+        """Использует инвайт, возвращает (успех, сообщение, часы_доступа)"""
+        if code not in self.invites:
+            return False, "INVALID", None
+        
+        invite = self.invites[code]
+        
+        if not invite.get('active', True):
+            return False, "INACTIVE", None
+        
+        if invite['expires'] < time.time():
+            return False, "EXPIRED", None
+        
+        if len(invite['used_by']) >= invite.get('max_uses', 1):
+            return False, "LIMIT_REACHED", None
+        
+        # Проверяем, не использовал ли этот пользователь уже
+        for used in invite['used_by']:
+            if used.get('user_id') == user_id:
+                return False, "ALREADY_USED", None
+        
+        invite['used_by'].append({
+            'user_id': user_id,
+            'username': username,
+            'time': time.time()
+        })
+        
+        self.save_invites()
+        return True, "SUCCESS", invite['hours']
+
+
 class UserSession:
     """Сессия пользователя"""
     user_id: int
@@ -109,6 +179,8 @@ class UserSession:
     is_finished: bool = False
     total_attempts: int = 0
     question_count: int = 20
+    seen_questions: List[int] = field(default_factory=list)  # ID уже показанных вопросов
+    all_questions_ids: List[int] = field(default_factory=list)  # Все ID вопросов в категории
     
     @property
     def total_questions(self) -> int:
@@ -325,6 +397,46 @@ class QuestionLoader:
         if not self.questions:
             return []
         return random.sample(self.questions, min(limit, len(self.questions)))
+    def get_all_questions(self, limit: int = 20) -> List[Question]:
+        if not self.questions:
+            return []
+        return random.sample(self.questions, min(limit, len(self.questions)))
+    
+    def get_unseen_questions(self, category_id: str, seen_ids: List[int], limit: int = 20) -> List[Question]:
+        """Возвращает вопросы, которые пользователь ещё не видел"""
+        if category_id not in self.categories:
+            return []
+        
+        all_ids = self.categories[category_id].questions
+        unseen_ids = [q_id for q_id in all_ids if q_id not in seen_ids]
+        
+        # Если все вопросы уже просмотрены — сбрасываем историю и начинаем заново
+        if not unseen_ids:
+            return []
+        
+        selected_ids = random.sample(unseen_ids, min(limit, len(unseen_ids)))
+        return [q for q in self.questions if q.id in selected_ids]
+    
+    def get_questions_for_category(self, category_id: str, seen_ids: List[int], limit: int = 20, allow_repeat: bool = False) -> List[Question]:
+        """Получает вопросы для категории с учётом неповторяемости"""
+        if allow_repeat or category_id == "exam":
+            # Для экзамена или если разрешено повторение — берём случайные вопросы
+            return self.get_questions_by_category(category_id, limit)
+        
+        # Для обычных категорий — сначала непросмотренные
+        unseen = self.get_unseen_questions(category_id, seen_ids, limit)
+        if len(unseen) >= limit:
+            return unseen
+        
+        # Если непросмотренных меньше, чем нужно — добираем из просмотренных
+        all_ids = self.categories[category_id].questions if category_id in self.categories else []
+        remaining = limit - len(unseen)
+        available = [q_id for q_id in all_ids if q_id not in [q.id for q in unseen]]
+        if available:
+            extra = random.sample(available, min(remaining, len(available)))
+            return unseen + [q for q in self.questions if q.id in extra]
+        
+        return unseen
     
     def get_question_by_id(self, q_id: int) -> Optional[Question]:
         for q in self.questions:
@@ -383,6 +495,7 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
         ])
     buttons.append([
         InlineKeyboardButton(text="📊 Моя статистика", callback_data="my_stats"),
+        InlineKeyboardButton(text="🔄 Сбросить прогресс", callback_data="reset_progress"),
         InlineKeyboardButton(text="❓ Помощь", callback_data="help")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -453,6 +566,101 @@ def get_grade_text(percent: float) -> str:
         return "Нужно повторить. Рекомендуем поработать над ошибками."
 
 # ==================== ОБРАБОТЧИКИ КОМАНД ====================
+
+@dp.message(Command("guest_invite"))
+async def cmd_guest_invite(message: Message):
+    """Создает гостевую ссылку на 24 часа (только для администраторов)"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    
+    # Парсим команду: /guest_invite 24 (часов)
+    parts = message.text.split()
+    hours = int(parts[1]) if len(parts) > 1 else 24
+    
+    if hours < 1 or hours > 72:
+        await message.answer("❌ Укажите часы от 1 до 72")
+        return
+    
+    code = guest_invite_manager.create_invite(message.from_user.id, hours)
+    bot_username = (await bot.get_me()).username
+    invite_link = f"https://t.me/{bot_username}?start=guest_{code}"
+    
+    await message.answer(
+        f"🔑 **Гостевая ссылка создана!**
+
+"
+        f"📅 **Действует:** {hours} часов
+"
+        f"📎 **Ссылка:**
+`{invite_link}`
+
+"
+        f"📋 **Код:** `{code}`
+"
+        f"⏱️ Истекает: {datetime.fromtimestamp(guest_invite_manager.invites[code]['expires']).strftime('%d.%m.%Y %H:%M')}
+
+"
+        f"📤 Отправьте эту ссылку пользователю."
+    )
+
+@dp.message(Command("guest_list"))
+async def cmd_guest_list(message: Message):
+    """Показывает активные гостевые инвайты"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    
+    if not guest_invite_manager.invites:
+        await message.answer("📭 Нет активных гостевых инвайтов")
+        return
+    
+    text = "📋 **Активные гостевые инвайты:**
+
+"
+    for code, invite in guest_invite_manager.invites.items():
+        if not invite.get('active', True):
+            continue
+        if invite['expires'] < time.time():
+            continue
+        
+        used = len(invite.get('used_by', []))
+        max_uses = invite.get('max_uses', 1)
+        hours = invite.get('hours', 24)
+        expires = datetime.fromtimestamp(invite['expires']).strftime('%d.%m.%Y %H:%M')
+        
+        text += f"🔑 `{code}`
+"
+        text += f"   ⏱️ {hours} ч, до {expires}
+"
+        text += f"   👤 Использован: {used}/{max_uses}
+
+"
+    
+    await message.answer(text)
+
+@dp.message(Command("guest_deactivate"))
+async def cmd_guest_deactivate(message: Message):
+    """Деактивирует гостевой инвайт"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("❌ Использование: /guest_deactivate КОД")
+        return
+    
+    code = parts[1]
+    if code not in guest_invite_manager.invites:
+        await message.answer("❌ Инвайт не найден")
+        return
+    
+    guest_invite_manager.invites[code]['active'] = False
+    guest_invite_manager.save_invites()
+    await message.answer(f"✅ Инвайт `{code}` деактивирован")
+
+
 @dp.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -504,6 +712,15 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
         else:
             raise e
     await callback.answer()
+
+
+@dp.callback_query(F.data == "reset_progress")
+async def reset_progress(callback: CallbackQuery):
+    """Сбрасывает историю просмотренных вопросов"""
+    user_id = callback.from_user.id
+    session = get_user_session(user_id)
+    session.seen_questions = []
+    await callback.answer("🔄 История просмотров сброшена! Теперь вопросы будут показываться заново.", show_alert=True)
 
 @dp.callback_query(F.data == "help")
 async def show_help(callback: CallbackQuery):
@@ -597,8 +814,38 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     if category_id == "all":
         questions = question_loader.get_all_questions(count)
         category_display = "📝 Общий экзамен"
+        # Для экзамена сбрасываем историю просмотров
+        session = get_user_session(user_id)
+        session.seen_questions = []
     else:
-        questions = question_loader.get_questions_by_category(category_id, count)
+        # Получаем сессию пользователя
+        session = get_user_session(user_id)
+        session.category_id = category_id
+        
+        # Проверяем, не экзамен ли это
+        is_exam = (category_id == "exam_choose_count" or "exam" in callback.data)
+        
+        # Получаем вопросы с учётом неповторяемости (для экзамена — повторяемость разрешена)
+        if is_exam:
+            questions = question_loader.get_questions_by_category(category_id, count)
+        else:
+            questions = question_loader.get_questions_for_category(category_id, session.seen_questions, count)
+            
+            # Сохраняем ID выданных вопросов как просмотренные
+            for q in questions:
+                if q.id not in session.seen_questions:
+                    session.seen_questions.append(q.id)
+            
+            # Если вопросов меньше запрошенного — сбрасываем историю и пробуем снова
+            if len(questions) < count:
+                # Сбрасываем историю просмотров
+                session.seen_questions = []
+                # Пробуем получить вопросы заново
+                questions = question_loader.get_questions_for_category(category_id, session.seen_questions, count)
+                for q in questions:
+                    if q.id not in session.seen_questions:
+                        session.seen_questions.append(q.id)
+        
         category_display = question_loader.categories.get(category_id, Category(
             id=category_id, name="", emoji="", description="", marker="", questions=[]
         )).display_name
@@ -694,7 +941,7 @@ async def send_question(message: Message, user_id: int, state: FSMContext):
         f"❓ **Вопрос {session.current_index + 1} из {len(session.questions)}**\n\n"
         f"**{question.question}**\n\n"
         f"{options_text}\n\n"
-        f"✨ *Нужно выбрать {len(question.correct_options)} правильных ответов*\n"
+        f"📝 Введите номера правильных ответов через запятую (например: `1,3,4`):\n"
         f"📝 Введите номера через запятую (например: `1,3,4`):"
     )
     await message.answer(text, parse_mode="Markdown")
@@ -723,7 +970,7 @@ async def process_answer(message: Message, state: FSMContext):
                     selected.add(n - 1)
             except ValueError:
                 pass
-        if len(selected) != len(question.correct_options):
+        if len(selected) == 0 or any(n < 0 or n >= len(question.options) for n in selected):
             await message.answer(
                 f"⚠️ Нужно выбрать **{len(question.correct_options)}** ответ(а), а вы выбрали {len(selected)}.\n"
                 f"Попробуйте снова (например: `{', '.join(question.get_correct_numbers())}`):"
