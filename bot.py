@@ -566,42 +566,6 @@ def get_grade_text(percent: float) -> str:
         return "Нужно повторить. Рекомендуем поработать над ошибками."
 
 # ==================== ОБРАБОТЧИКИ КОМАНД ====================
-
-@dp.message(Command("guest_invite"))
-async def cmd_guest_invite(message: Message):
-    """Создает гостевую ссылку на 24 часа (только для администраторов)"""
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
-    
-    parts = message.text.split()
-    hours = int(parts[1]) if len(parts) > 1 else 24
-    
-    if hours < 1 or hours > 72:
-        await message.answer("❌ Укажите часы от 1 до 72")
-        return
-    
-    code = guest_invite_manager.create_invite(message.from_user.id, hours)
-    bot_username = (await bot.get_me()).username
-    invite_link = f"https://t.me/{bot_username}?start=guest_{code}"
-    
-    await message.answer(
-        f"🔑 **Гостевая ссылка создана!**
-
-"
-        f"📅 **Действует:** {hours} часов
-"
-        f"📎 **Ссылка:**
-`{invite_link}`
-
-"
-        f"📋 **Код:** `{code}`
-"
-        f"⏱️ Истекает: {datetime.fromtimestamp(guest_invite_manager.invites[code]['expires']).strftime('%d.%m.%Y %H:%M')}
-
-"
-        f"📤 Отправьте эту ссылку пользователю."
-    )
 @dp.message(Command("guest_list"))
 async def cmd_guest_list(message: Message):
     """Показывает активные гостевые инвайты"""
@@ -613,9 +577,7 @@ async def cmd_guest_list(message: Message):
         await message.answer("📭 Нет активных гостевых инвайтов")
         return
     
-    text = "📋 **Активные гостевые инвайты:**
-
-"
+    text = "📋 **Активные гостевые инвайты:**\n\n"
     for code, invite in guest_invite_manager.invites.items():
         if not invite.get('active', True):
             continue
@@ -627,13 +589,9 @@ async def cmd_guest_list(message: Message):
         hours = invite.get('hours', 24)
         expires = datetime.fromtimestamp(invite['expires']).strftime('%d.%m.%Y %H:%M')
         
-        text += f"🔑 `{code}`
-"
-        text += f"   ⏱️ {hours} ч, до {expires}
-"
-        text += f"   👤 Использован: {used}/{max_uses}
-
-"
+        text += f"🔑 `{code}`\n"
+        text += f"   ⏱️ {hours} ч, до {expires}\n"
+        text += f"   👤 Использован: {used}/{max_uses}\n\n"
     
     await message.answer(text)
 
