@@ -689,6 +689,16 @@ async def cmd_admin_panel(message: Message):
 
 
 # ==================== CALLBACK ОБРАБОТЧИКИ ====================
+
+
+# Универсальный обработчик для отладки всех callback
+@dp.callback_query()
+async def debug_callback(callback: CallbackQuery):
+    logger.info(f"🔍 ВСЕ CALLBACK: {callback.data}")
+    logger.info(f"🔍 USER: {callback.from_user.id}")
+    # Пропускаем дальше
+    await callback.continue_propagation()
+
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -822,3 +832,58 @@ async def list_active_invites(callback: CallbackQuery):
         if not invite.get('active', True) or invite['expires'] < time.time():
             continue
        
+@dp.callback_query(F.data == "back_to_admin")
+async def back_to_admin_panel(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав", show_alert=True)
+        return
+    await cmd_admin_panel(callback.message)
+    await callback.answer()
+
+@dp.callback_query(F.data == "bot_stats")
+async def show_bot_stats(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав", show_alert=True)
+        return
+    total_questions = len(question_loader.questions)
+    total_categories = len([c for c in question_loader.categories.values() if c.count > 0])
+    active_invites = sum(1 for inv in guest_invite_manager.invites.values() 
+                        if inv.get('active', True) and inv['expires'] > time.time())
+    text = (
+        "📊 **Статистика бота**\n\n"
+        f"📚 Всего вопросов: {total_questions}\n"
+        f"📂 Категорий: {total_categories}\n"
+        f"🔑 Активных инвайтов: {active_invites}\n"
+        f"👥 Всего создано инвайтов: {len(guest_invite_manager.invites)}\n"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="bot_stats")],
+        [InlineKeyboardButton(text="🔙 Назад в админку", callback_data="back_to_admin")]
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+# ==================== ЗАПУСК ====================
+async def main():
+    print("=" * 60)
+    print("🚀 ЮРИДИЧЕСКИЙ БОТ ЗАПУЩЕН")
+    print("=" * 60)
+    print(f"📚 Всего вопросов: {len(question_loader.questions)}")
+    print("\n📊 Категории вопросов:")
+    for cat_id, category in question_loader.categories.items():
+        if category.count > 0 and cat_id != 'general':
+            print(f"  {category.display_name}")
+    if 'general' in question_loader.categories and question_loader.categories['general'].count > 0:
+        print(f"  📚 Общие вопросы ({question_loader.categories['general'].count})")
+    print("=" * 60)
+    print("✅ Бот готов к работе!")
+    print("=" * 60)
+    logger.info("🚀 Запускаем polling...")
+    try:
+        await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"❌ Ошибка при запуске polling: {e}")
+        raise
+
+if __name__ == "__main__":
+    asyncio.run(main())
