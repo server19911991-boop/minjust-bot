@@ -847,3 +847,27 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+@dp.callback_query(F.data.startswith("category_"))
+async def select_category(callback: CallbackQuery, state: FSMContext):
+    logger.info(f"🔍 ВЫБРАНА КАТЕГОРИЯ: {callback.data}")
+    logger.info(f"🔍 USER ID: {callback.from_user.id}")
+    category_id = callback.data.replace("category_", "")
+    logger.info(f"🔍 CATEGORY ID: {category_id}")
+    
+    category = question_loader.categories.get(category_id)
+    if not category:
+        await callback.answer("❌ Категория не найдена", show_alert=True)
+        return
+    if category.count == 0:
+        await callback.answer("❌ В этой категории пока нет вопросов", show_alert=True)
+        return
+    
+    info_text = (
+        f"{category.emoji} **{category.name}**\n\n"
+        f"📝 **Описание:** {category.description}\n"
+        f"📊 **Вопросов в категории:** {category.count}\n\n"
+        f"🚀 Нажмите «Начать тест» для выбора количества вопросов."
+    )
+    await callback.message.edit_text(info_text, reply_markup=get_category_info_keyboard(category_id))
+    await callback.answer()
