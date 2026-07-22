@@ -425,12 +425,12 @@ def get_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
 
 
 def get_count_choice_keyboard(category_id: str = None) -> InlineKeyboardMarkup:
-    logger.info(f"🔍 KEYBOARD: category_id до преобразования = {category_id}")
-    if category_id in CATEGORY_MAP:
-        logger.info(f"🔍 KEYBOARD: преобразование {category_id} -> {CATEGORY_MAP[category_id]}")
-        category_id = CATEGORY_MAP[category_id]
-    logger.info(f"🔍 KEYBOARD: category_id после преобразования = {category_id}")
-    cat_id = category_id if category_id and category_id != "all" else "all"
+    # Используем полный category_id без обрезания
+    if category_id and category_id != "all":
+        cat_id = category_id
+    else:
+        cat_id = "all"
+    logger.info(f"🔍 KEYBOARD: category_id = {category_id}, cat_id = {cat_id}")
     buttons = [
         [
             InlineKeyboardButton(text="📝 20 вопросов", callback_data=f"count_20_{cat_id}"),
