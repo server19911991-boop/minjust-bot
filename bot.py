@@ -956,3 +956,56 @@ if __name__ == "__main__":
 
 
 
+
+# ==================== ОТПРАВКА ВОПРОСА ====================
+async def send_question(message: Message, user_id: int, state: FSMContext):
+    session = get_user_session(user_id)
+    if session.is_finished or session.current_index >= len(session.questions):
+        await finish_exam(message, user_id, state)
+        return
+    question = session.current_question
+    if not question:
+        await finish_exam(message, user_id, state)
+        return
+    progress = get_progress_bar(session.current_index, len(session.questions))
+    options_text = "\n".join([f"{i+1}. {opt}" for i, opt in enumerate(question.options)])
+    category_name = "📝 Общий экзамен"
+    if session.category_id in question_loader.categories:
+        cat = question_loader.categories[session.category_id]
+        category_name = f"{cat.emoji} {cat.name}"
+    elif session.category_id == "mistakes":
+        category_name = "📝 Работа над ошибками"
+    text = (
+        f"**{category_name}**\n"
+        f"📊 Прогресс: `{progress}`\n"
+        f"❓ **Вопрос {session.current_index + 1} из {len(session.questions)}**\n\n"
+        f"**{question.question}**\n\n"
+        f"{options_text}\n\n"
+        f"📝 Введите номера правильных ответов через запятую (например: `1,3,4`):"
+    )
+    await message.answer(text, parse_mode="Markdown")
+
+# ==================== ЗАВЕРШЕНИЕ ЭКЗАМЕНА ====================
+async def finish_exam(message: Message, user_id: int, state: FSMContext):
+    session = get_user_session(user_id)
+    session.is_finished = True
+    total = len(session.questions)
+    score = session.score
+    percent = (score / total) * 100 if total > 0 else 0
+    mistakes = [a for a in session.answers if not a.get('is_correct', False)]
+    grade_emoji = get_grade_emoji(percent)
+    grade_text = get_grade_text(percent)
+    duration = int(time.time() - session.started_at)
+    minutes = duration // 60
+    seconds = duration % 60
+    text = (
+        f"📊 **Экзамен завершен!** {grade_emoji}\n\n"
+        f"✅ Правильных ответов: `{score}` из `{total}`\n"
+        f"📈 Результат: `{percent:.1f}%`\n"
+        f"⏱️ Время: {minutes} мин {seconds} сек\n\n"
+        f"{grade_text}\n"
+    )
+    if mistakes:
+        text += f"\n📝 Допущено ошибок: {len(mistakes)}"
+    await message.answer(text, reply_markup=get_post_exam_keyboard(len(mistakes) > 0))
+    await state.set_state(ExamStates.choosing_category)
