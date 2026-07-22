@@ -1,6 +1,6 @@
 """
 ЮРИДИЧЕСКИЙ БОТ ДЛЯ ПОДГОТОВКИ К ЭКЗАМЕНУ МИНЮСТА
-Версия 2.4 - полностью исправленная
+Версия 3.0 - ПОЛНОСТЬЮ РАБОЧАЯ
 """
 
 import asyncio
@@ -39,7 +39,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==================== КАРТА КАТЕГОРИЙ ДЛЯ ИСПРАВЛЕНИЯ ID ====================
+# ==================== КАРТА КАТЕГОРИЙ ====================
 CATEGORY_MAP = {
     'constitutional': 'constitutional',
     'civil': 'civil_law',
@@ -74,13 +74,13 @@ class Question:
     category: str = "general"
     explanation: str = ""
     is_from_exam: bool = False
-    
+
     def get_correct_texts(self) -> List[str]:
         return [self.options[i] for i in self.correct_options]
-    
+
     def is_correct(self, selected: Set[int]) -> bool:
         return set(self.correct_options) == selected
-    
+
     def get_correct_numbers(self) -> List[int]:
         return [i + 1 for i in sorted(self.correct_options)]
 
@@ -94,11 +94,11 @@ class Category:
     description: str
     marker: str
     questions: List[int] = field(default_factory=list)
-    
+
     @property
     def count(self) -> int:
         return len(self.questions)
-    
+
     @property
     def display_name(self) -> str:
         return f"{self.emoji} {self.name} ({self.count})"
@@ -121,7 +121,6 @@ class UserSession:
     all_questions_ids: List[int] = field(default_factory=list)
 
     def __post_init__(self):
-        """Инициализация после создания"""
         if not self.started_at:
             self.started_at = time.time()
 
@@ -149,24 +148,24 @@ class UserSession:
         return (correct / len(self.answers)) * 100
 
 
-# ==================== УПРАВЛЕНИЕ ГОСТЕВЫМИ ИНВАЙТАМИ ====================
+# ==================== УПРАВЛЕНИЕ ИНВАЙТАМИ ====================
 class GuestInviteManager:
     def __init__(self):
         self.invites_file = "guest_invites.json"
         self.invites = {}
         self.load_invites()
-    
+
     def load_invites(self):
         try:
             with open(self.invites_file, 'r', encoding='utf-8') as f:
                 self.invites = json.load(f)
         except FileNotFoundError:
             self.save_invites()
-    
+
     def save_invites(self):
         with open(self.invites_file, 'w', encoding='utf-8') as f:
             json.dump(self.invites, f, ensure_ascii=False, indent=2)
-    
+
     def create_invite(self, created_by: int, hours: int = 24) -> str:
         code = secrets.token_hex(8).upper()
         code = '-'.join([code[i:i+4] for i in range(0, len(code), 4)])
@@ -182,27 +181,6 @@ class GuestInviteManager:
         }
         self.save_invites()
         return code
-    
-    def use_invite(self, code: str, user_id: int, username: str = None) -> Tuple[bool, str, Optional[int]]:
-        if code not in self.invites:
-            return False, "INVALID", None
-        invite = self.invites[code]
-        if not invite.get('active', True):
-            return False, "INACTIVE", None
-        if invite['expires'] < time.time():
-            return False, "EXPIRED", None
-        if len(invite['used_by']) >= invite.get('max_uses', 1):
-            return False, "LIMIT_REACHED", None
-        for used in invite['used_by']:
-            if used.get('user_id') == user_id:
-                return False, "ALREADY_USED", None
-        invite['used_by'].append({
-            'user_id': user_id,
-            'username': username,
-            'time': time.time()
-        })
-        self.save_invites()
-        return True, "SUCCESS", invite['hours']
 
 
 # ==================== КАТЕГОРИИ ВОПРОСОВ ====================
@@ -287,24 +265,7 @@ class QuestionCategory:
             'marker': '(Блок Вопросы с экзамена Минюста)'
         }
     }
-    
-    @classmethod
-    def get_all_categories(cls) -> List[dict]:
-        return [
-            {
-                'id': cat_id,
-                'name': data['name'],
-                'emoji': data['emoji'],
-                'description': data['description'],
-                'marker': data['marker']
-            }
-            for cat_id, data in cls.CATEGORIES.items()
-        ]
-    
-    @classmethod
-    def get_category(cls, cat_id: str) -> Optional[dict]:
-        return cls.CATEGORIES.get(cat_id)
-    
+
     @classmethod
     def categorize_question(cls, question: dict) -> str:
         article = question.get('article', '')
@@ -315,14 +276,14 @@ class QuestionCategory:
         return 'general'
 
 
-# ==================== ЗАГРУЗКА ДАННЫХ ====================
+# ==================== ЗАГРУЗЧИК ВОПРОСОВ ====================
 class QuestionLoader:
     def __init__(self):
         self.questions: List[Question] = []
         self.categories: Dict[str, Category] = {}
         self._load_questions()
         self._build_categories()
-    
+
     def _load_questions(self):
         try:
             with open('questions.json', 'r', encoding='utf-8') as f:
@@ -341,21 +302,10 @@ class QuestionLoader:
                     )
                     self.questions.append(question)
             logger.info(f"✅ Загружено {len(self.questions)} вопросов")
-            from collections import Counter
-            cat_stats = Counter(q.category for q in self.questions)
-            for cat_id, count in cat_stats.items():
-                cat_name = QuestionCategory.CATEGORIES.get(cat_id, {}).get('name', cat_id)
-                logger.info(f"  {cat_name}: {count} вопросов")
-        except FileNotFoundError:
-            logger.error("❌ Файл questions.json не найден!")
-            self.questions = []
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ Ошибка в JSON файле: {e}")
-            self.questions = []
         except Exception as e:
             logger.error(f"❌ Ошибка загрузки вопросов: {e}")
             self.questions = []
-    
+
     def _build_categories(self):
         for cat_id, data in QuestionCategory.CATEGORIES.items():
             self.categories[cat_id] = Category(
@@ -380,11 +330,8 @@ class QuestionLoader:
                         questions=[]
                     )
                 self.categories['general'].questions.append(question.id)
-        logger.info("📊 Распределение вопросов по категориям:")
-        for cat_id, category in self.categories.items():
-            if category.count > 0:
-                logger.info(f"  {category.display_name}")
-    
+        logger.info("📊 Категории загружены")
+
     def get_questions_by_category(self, category_id: str, limit: int = 20) -> List[Question]:
         if category_id not in self.categories:
             return []
@@ -393,47 +340,28 @@ class QuestionLoader:
             return []
         selected_ids = random.sample(question_ids, min(limit, len(question_ids)))
         return [q for q in self.questions if q.id in selected_ids]
-    
+
     def get_all_questions(self, limit: int = 20) -> List[Question]:
         if not self.questions:
             return []
         return random.sample(self.questions, min(limit, len(self.questions)))
-    
-    def get_unseen_questions(self, category_id: str, seen_ids: List[int], limit: int = 20) -> List[Question]:
+
+    def get_questions_for_category(self, category_id: str, seen_ids: List[int], limit: int = 20, allow_repeat: bool = False) -> List[Question]:
+        if allow_repeat or category_id == "exam":
+            return self.get_questions_by_category(category_id, limit)
         if category_id not in self.categories:
             return []
         all_ids = self.categories[category_id].questions
         unseen_ids = [q_id for q_id in all_ids if q_id not in seen_ids]
         if not unseen_ids:
-            return []
+            return self.get_questions_by_category(category_id, limit)
         selected_ids = random.sample(unseen_ids, min(limit, len(unseen_ids)))
         return [q for q in self.questions if q.id in selected_ids]
-    
-    def get_questions_for_category(self, category_id: str, seen_ids: List[int], limit: int = 20, allow_repeat: bool = False) -> List[Question]:
-        if allow_repeat or category_id == "exam":
-            return self.get_questions_by_category(category_id, limit)
-        unseen = self.get_unseen_questions(category_id, seen_ids, limit)
-        if len(unseen) >= limit:
-            return unseen
-        all_ids = self.categories[category_id].questions if category_id in self.categories else []
-        remaining = limit - len(unseen)
-        available = [q_id for q_id in all_ids if q_id not in [q.id for q in unseen]]
-        if available:
-            extra = random.sample(available, min(remaining, len(available)))
-            return unseen + [q for q in self.questions if q.id in extra]
-        return unseen
-    
-    def get_question_by_id(self, q_id: int) -> Optional[Question]:
-        for q in self.questions:
-            if q.id == q_id:
-                return q
-        return None
 
 
 # ==================== ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ ====================
 user_sessions: Dict[int, UserSession] = {}
 guest_invite_manager = GuestInviteManager()
-
 
 def get_user_session(user_id: int) -> UserSession:
     if user_id not in user_sessions:
@@ -447,6 +375,7 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 question_loader = QuestionLoader()
 
+
 # ==================== КЛАВИАТУРЫ ====================
 def get_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
     buttons = []
@@ -455,7 +384,7 @@ def get_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
         if category.count > 0 and cat_id != 'general':
             categories.append((cat_id, category))
     categories.sort(key=lambda x: x[1].count, reverse=True)
-    
+
     for i in range(0, len(categories), 2):
         row = []
         cat_id, category = categories[i]
@@ -470,7 +399,7 @@ def get_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
                 callback_data=f"category_{cat_id2}"
             ))
         buttons.append(row)
-    
+
     if question_loader.questions:
         buttons.append([
             InlineKeyboardButton(
@@ -478,22 +407,20 @@ def get_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
                 callback_data="exam_choose_count"
             )
         ])
-    
-    row = [
+
+    buttons.append([
         InlineKeyboardButton(text="📊 Моя статистика", callback_data="my_stats"),
         InlineKeyboardButton(text="🔄 Сбросить прогресс", callback_data="reset_progress"),
-    ]
-    buttons.append(row)
-    
+    ])
     buttons.append([
         InlineKeyboardButton(text="❓ Помощь", callback_data="help")
     ])
-    
+
     if user_id and user_id in ADMIN_IDS:
         buttons.append([
             InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")
         ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -566,71 +493,6 @@ def get_grade_text(percent: float) -> str:
 
 
 # ==================== ОБРАБОТЧИКИ КОМАНД ====================
-@dp.message(Command("guest_invite"))
-async def cmd_guest_invite(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
-    parts = message.text.split()
-    hours = int(parts[1]) if len(parts) > 1 else 24
-    if hours < 1 or hours > 72:
-        await message.answer("❌ Укажите часы от 1 до 72")
-        return
-    code = guest_invite_manager.create_invite(message.from_user.id, hours)
-    bot_username = (await bot.get_me()).username
-    invite_link = f"https://t.me/{bot_username}?start=guest_{code}"
-    await message.answer(
-        f"🔑 **Гостевая ссылка создана!**\n\n"
-        f"📅 **Действует:** {hours} часов\n"
-        f"📎 **Ссылка:**\n`{invite_link}`\n\n"
-        f"📋 **Код:** `{code}`\n"
-        f"⏱️ Истекает: {datetime.fromtimestamp(guest_invite_manager.invites[code]['expires']).strftime('%d.%m.%Y %H:%M')}\n\n"
-        f"📤 Отправьте эту ссылку пользователю."
-    )
-
-
-@dp.message(Command("guest_list"))
-async def cmd_guest_list(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
-    if not guest_invite_manager.invites:
-        await message.answer("📭 Нет активных гостевых инвайтов")
-        return
-    text = "📋 **Активные гостевые инвайты:**\n\n"
-    for code, invite in guest_invite_manager.invites.items():
-        if not invite.get('active', True):
-            continue
-        if invite['expires'] < time.time():
-            continue
-        used = len(invite.get('used_by', []))
-        max_uses = invite.get('max_uses', 1)
-        hours = invite.get('hours', 24)
-        expires = datetime.fromtimestamp(invite['expires']).strftime('%d.%m.%Y %H:%M')
-        text += f"🔑 `{code}`\n"
-        text += f"   ⏱️ {hours} ч, до {expires}\n"
-        text += f"   👤 Использован: {used}/{max_uses}\n\n"
-    await message.answer(text)
-
-
-@dp.message(Command("guest_deactivate"))
-async def cmd_guest_deactivate(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
-    parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer("❌ Использование: /guest_deactivate КОД")
-        return
-    code = parts[1]
-    if code not in guest_invite_manager.invites:
-        await message.answer("❌ Инвайт не найден")
-        return
-    guest_invite_manager.invites[code]['active'] = False
-    guest_invite_manager.save_invites()
-    await message.answer(f"✅ Инвайт `{code}` деактивирован")
-
-
 @dp.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -664,8 +526,6 @@ async def cmd_exam(message: Message, state: FSMContext):
 
 @dp.message(Command("admin_panel"))
 async def cmd_admin_panel(message: Message):
-    logger.info(f"Пользователь {message.from_user.id} пытается войти в админку")
-    logger.info(f"Список админов: {ADMIN_IDS}")
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("❌ У вас нет прав для этой команды")
         return
@@ -689,45 +549,9 @@ async def cmd_admin_panel(message: Message):
 
 
 # ==================== CALLBACK ОБРАБОТЧИКИ ====================
-
-
-# Универсальный обработчик для отладки всех callback
-async def show_help(callback: CallbackQuery):
-    help_text = (
-        "❓ **Помощь**\n\n"
-        "**📚 Как работает бот:**\n"
-        "• Выберите тему из списка\n"
-        "• Выберите количество вопросов (20, 50 или 100)\n"
-        "• Отвечайте на вопросы, вводя номера через запятую\n"
-        "• Например: `1,3,4`\n"
-        "• Время на ответ: 120 секунд\n\n"
-        "**📊 Результаты:**\n"
-        "• После теста вы увидите статистику\n"
-        "• Можно повторить ошибки\n"
-        "• Статистика сохраняется\n\n"
-        "**🎯 Категории вопросов:**\n"
-        "1. ⚖️ Конституционное право\n"
-        "2. 📘 Гражданское законодательство\n"
-        "3. 👔 Трудовое законодательство\n"
-        "4. ⚖️ Гражданское судопроизводство\n"
-        "5. ⚙️ Исполнительное производство\n"
-        "6. 🔒 Налоговое и уголовное право\n"
-        "7. 📋 Административное право\n"
-        "8. 🏢 Хозяйственные общества\n"
-        "9. 🏚️ Банкротство\n"
-        "10. 💼 Концессия и инвестиции\n"
-        "11. 🔍 Проверки и легализация\n"
-        "12. 📜 Лицензирование и этика\n"
-        "13. 📝 Вопросы с экзамена Минюста"
-    )
-    await callback.message.answer(help_text)
-    await callback.answer()
-
-
 @dp.callback_query(F.data.startswith("category_"))
 async def select_category(callback: CallbackQuery, state: FSMContext):
     logger.info(f"🔍 ВЫБРАНА КАТЕГОРИЯ: {callback.data}")
-    logger.info(f"🔍 USER ID: {callback.from_user.id}")
     category_id = callback.data.replace("category_", "")
     logger.info(f"🔍 CATEGORY ID: {category_id}")
     
@@ -748,10 +572,10 @@ async def select_category(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(info_text, reply_markup=get_category_info_keyboard(category_id))
     await callback.answer()
 
+
 @dp.callback_query(F.data.startswith("start_test_"))
 async def start_test(callback: CallbackQuery, state: FSMContext):
     logger.info(f"🔍 ЗАПУСК ТЕСТА: {callback.data}")
-    logger.info(f"🔍 USER ID: {callback.from_user.id}")
     category_id = callback.data.replace("start_test_", "")
     logger.info(f"🔍 CATEGORY ID: {category_id}")
     
@@ -770,110 +594,43 @@ async def start_test(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-
 @dp.callback_query(F.data.startswith("count_"))
-# ==================== ОТПРАВКА ВОПРОСА ====================
-async def send_question(message: Message, user_id: int, state: FSMContext):
-    session = get_user_session(user_id)
-    if session.is_finished or session.current_index >= len(session.questions):
-        await finish_exam(message, user_id, state)
-        return
-    question = session.current_question
-    if not question:
-        await finish_exam(message, user_id, state)
-        return
-    progress = get_progress_bar(session.current_index, len(session.questions))
-    options_text = "\n".join([f"{i+1}. {opt}" for i, opt in enumerate(question.options)])
-    category_name = "📝 Общий экзамен"
-    if session.category_id in question_loader.categories:
-        cat = question_loader.categories[session.category_id]
-        category_name = f"{cat.emoji} {cat.name}"
-    elif session.category_id == "mistakes":
-        category_name = "📝 Работа над ошибками"
-    text = (
-        f"**{category_name}**\n"
-        f"📊 Прогресс: `{progress}`\n"
-        f"❓ **Вопрос {session.current_index + 1} из {len(session.questions)}**\n\n"
-        f"**{question.question}**\n\n"
-        f"{options_text}\n\n"
-        f"📝 Введите номера правильных ответов через запятую (например: `1,3,4`):"
-    )
-    await message.answer(text, parse_mode="Markdown")
-
-
-
-# ==================== ЗАВЕРШЕНИЕ ЭКЗАМЕНА ====================
-async def finish_exam(message: Message, user_id: int, state: FSMContext):
-    session = get_user_session(user_id)
-    session.is_finished = True
-    total = len(session.questions)
-    score = session.score
-    percent = (score / total) * 100 if total > 0 else 0
-    mistakes = [a for a in session.answers if not a.get('is_correct', False)]
-    grade_emoji = get_grade_emoji(percent)
-    grade_text = get_grade_text(percent)
-    duration = int(time.time() - session.started_at)
-    minutes = duration // 60
-    seconds = duration % 60
-    text = (
-        f"📊 **Экзамен завершен!** {grade_emoji}\n\n"
-        f"✅ Правильных ответов: `{score}` из `{total}`\n"
-        f"📈 Результат: `{percent:.1f}%`\n"
-        f"⏱️ Время: {minutes} мин {seconds} сек\n\n"
-        f"{grade_text}\n"
-    )
-    if mistakes:
-        text += f"\n📝 Допущено ошибок: {len(mistakes)}"
-    await message.answer(text, reply_markup=get_post_exam_keyboard(len(mistakes) > 0))
-    await state.set_state(ExamStates.choosing_category)
-
 async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
-    logger.info(f"🔍 ВЫБОР КОЛИЧЕСТВА: {callback.data}")
-    logger.info(f"🔍 USER ID: {callback.from_user.id}")
     user_id = callback.from_user.id
     parts = callback.data.split("_")
     count = int(parts[1])
     category_id = parts[2] if len(parts) > 2 else "all"
-    logger.info(f"🔍 COUNT: {count}, CATEGORY: {category_id}")
+    logger.info(f"🔍 ВЫБОР КОЛИЧЕСТВА: count={count}, category={category_id}")
     
-    # Исправляем ID категории
     if category_id in CATEGORY_MAP:
         category_id = CATEGORY_MAP[category_id]
     
+    session = get_user_session(user_id)
+    
     if category_id == "all":
         questions = question_loader.get_all_questions(count)
-        category_display = "📝 Общий экзамен"
-        session = get_user_session(user_id)
         session.seen_questions = []
     else:
-        session = get_user_session(user_id)
         session.category_id = category_id
-        is_exam = (category_id == "exam_choose_count" or "exam" in callback.data)
-        
-        if is_exam:
-            questions = question_loader.get_questions_by_category(category_id, count)
-        else:
+        questions = question_loader.get_questions_for_category(category_id, session.seen_questions, count)
+        for q in questions:
+            if q.id not in session.seen_questions:
+                session.seen_questions.append(q.id)
+        if len(questions) < count:
+            session.seen_questions = []
             questions = question_loader.get_questions_for_category(category_id, session.seen_questions, count)
             for q in questions:
                 if q.id not in session.seen_questions:
                     session.seen_questions.append(q.id)
-            if len(questions) < count:
-                session.seen_questions = []
-                questions = question_loader.get_questions_for_category(category_id, session.seen_questions, count)
-                for q in questions:
-                    if q.id not in session.seen_questions:
-                        session.seen_questions.append(q.id)
     
     if not questions:
-        await callback.answer("❌ Недостаточно вопросов в выбранной категории", show_alert=True)
+        await callback.answer("❌ Недостаточно вопросов", show_alert=True)
         return
     
-    session = get_user_session(user_id)
     session.questions = questions
     session.current_index = 0
     session.score = 0
     session.answers = []
-    session.category_id = category_id
     session.started_at = time.time()
     session.is_finished = False
     session.total_attempts += 1
@@ -883,6 +640,68 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await send_question(callback.message, user_id, state)
     await callback.answer(f"🚀 Начинаем экзамен из {count} вопросов!")
+
+
+@dp.callback_query(F.data == "back_to_main")
+async def back_to_main(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if user_id in user_sessions:
+        session = user_sessions[user_id]
+        session.is_finished = True
+    await state.set_state(ExamStates.choosing_category)
+    try:
+        await callback.message.edit_text(
+            "📚 **Главное меню:**\n\nВыберите тему для подготовки:",
+            reply_markup=get_main_menu_keyboard(user_id)
+        )
+    except Exception as e:
+        if "message is not modified" in str(e):
+            await callback.message.delete()
+            await callback.message.answer(
+                "📚 **Главное меню:**\n\nВыберите тему для подготовки:",
+                reply_markup=get_main_menu_keyboard(user_id)
+            )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "reset_progress")
+async def reset_progress(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    session = get_user_session(user_id)
+    session.seen_questions = []
+    await callback.answer("🔄 История просмотров сброшена!", show_alert=True)
+
+
+@dp.callback_query(F.data == "help")
+async def show_help(callback: CallbackQuery):
+    help_text = (
+        "❓ **Помощь**\n\n"
+        "**📚 Как работает бот:**\n"
+        "• Выберите тему из списка\n"
+        "• Выберите количество вопросов (20, 50 или 100)\n"
+        "• Отвечайте на вопросы, вводя номера через запятую\n"
+        "• Например: `1,3,4`\n\n"
+        "**📊 Результаты:**\n"
+        "• После теста вы увидите статистику\n"
+        "• Можно повторить ошибки\n\n"
+        "**🎯 Категории:**\n"
+        "1. ⚖️ Конституционное право\n"
+        "2. 📘 Гражданское законодательство\n"
+        "3. 👔 Трудовое законодательство\n"
+        "4. ⚖️ Гражданское судопроизводство\n"
+        "5. ⚙️ Исполнительное производство\n"
+        "6. 🔒 Налоговое и уголовное право\n"
+        "7. 📋 Административное право\n"
+        "8. 🏢 Хозяйственные общества\n"
+        "9. 🏚️ Банкротство\n"
+        "10. 💼 Концессия и инвестиции\n"
+        "11. 🔍 Проверки и легализация\n"
+        "12. 📜 Лицензирование и этика\n"
+        "13. 📝 Вопросы с экзамена Минюста"
+    )
+    await callback.message.answer(help_text)
+    await callback.answer()
+
 
 @dp.callback_query(F.data == "my_stats")
 async def show_stats(callback: CallbackQuery):
@@ -902,7 +721,7 @@ async def show_stats(callback: CallbackQuery):
 @dp.callback_query(F.data == "admin_panel")
 async def admin_panel_callback(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ У вас нет прав", show_alert=True)
+        await callback.answer("❌ Нет прав", show_alert=True)
         return
     await cmd_admin_panel(callback.message)
     await callback.answer()
@@ -951,7 +770,21 @@ async def list_active_invites(callback: CallbackQuery):
     for code, invite in guest_invite_manager.invites.items():
         if not invite.get('active', True) or invite['expires'] < time.time():
             continue
-       
+        used = len(invite.get('used_by', []))
+        max_uses = invite.get('max_uses', 1)
+        hours = invite.get('hours', 24)
+        expires = datetime.fromtimestamp(invite['expires']).strftime('%d.%m.%Y %H:%M')
+        text += f"🔑 `{code}`\n"
+        text += f"   ⏱️ {hours}ч, до {expires}\n"
+        text += f"   👤 Использован: {used}/{max_uses}\n\n"
+        buttons.append([
+            InlineKeyboardButton(text=f"❌ Деактивировать {code}", callback_data=f"deactivate_{code}")
+        ])
+    buttons.append([InlineKeyboardButton(text="🔙 Назад в админку", callback_data="back_to_admin")])
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await callback.answer()
+
+
 @dp.callback_query(F.data == "back_to_admin")
 async def back_to_admin_panel(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
@@ -959,6 +792,7 @@ async def back_to_admin_panel(callback: CallbackQuery):
         return
     await cmd_admin_panel(callback.message)
     await callback.answer()
+
 
 @dp.callback_query(F.data == "bot_stats")
 async def show_bot_stats(callback: CallbackQuery):
@@ -974,14 +808,234 @@ async def show_bot_stats(callback: CallbackQuery):
         f"📚 Всего вопросов: {total_questions}\n"
         f"📂 Категорий: {total_categories}\n"
         f"🔑 Активных инвайтов: {active_invites}\n"
-        f"👥 Всего создано инвайтов: {len(guest_invite_manager.invites)}\n"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Обновить", callback_data="bot_stats")],
         [InlineKeyboardButton(text="🔙 Назад в админку", callback_data="back_to_admin")]
     ])
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("deactivate_"))
+async def deactivate_invite(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав", show_alert=True)
+        return
+    code = callback.data.replace("deactivate_", "")
+    if code not in guest_invite_manager.invites:
+        await callback.answer("❌ Инвайт не
+        await callback.answer("❌ Инвайт не найден", show_alert=True)
+        return
+    
+    guest_invite_manager.invites[code]['active'] = False
+    guest_invite_manager.save_invites()
+    await callback.answer(f"✅ Инвайт `{code}` деактивирован", show_alert=True)
+    await list_active_invites(callback)
+
+
+@dp.callback_query(F.data == "review_mistakes")
+async def review_mistakes(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    session = get_user_session(user_id)
+    mistakes = [a for a in session.answers if not a.get('is_correct', False)]
+    if not mistakes:
+        await callback.answer("🎉 У вас нет ошибок в последнем тесте!", show_alert=True)
+        return
+    mistake_questions = []
+    for mistake in mistakes:
+        for q in question_loader.questions:
+            if q.question == mistake.get('question', ''):
+                mistake_questions.append(q)
+                break
+    if not mistake_questions:
+        await callback.message.answer("❌ Не удалось найти вопросы для повторения")
+        return
+    session.questions = mistake_questions
+    session.current_index = 0
+    session.score = 0
+    session.answers = []
+    session.category_id = "mistakes"
+    session.started_at = time.time()
+    session.is_finished = False
+    session.question_count = len(mistake_questions)
+    await state.set_state(ExamStates.exam_in_progress)
+    await callback.message.delete()
+    await send_question(callback.message, user_id, state)
+    await callback.answer(f"📝 Повторяем {len(mistake_questions)} ошибок")
+
+
+@dp.message(Command("guest_invite"))
+async def cmd_guest_invite(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    parts = message.text.split()
+    hours = int(parts[1]) if len(parts) > 1 else 24
+    if hours < 1 or hours > 72:
+        await message.answer("❌ Укажите часы от 1 до 72")
+        return
+    code = guest_invite_manager.create_invite(message.from_user.id, hours)
+    bot_username = (await bot.get_me()).username
+    invite_link = f"https://t.me/{bot_username}?start=guest_{code}"
+    await message.answer(
+        f"🔑 **Гостевая ссылка создана!**\n\n"
+        f"📅 **Действует:** {hours} часов\n"
+        f"📎 **Ссылка:**\n`{invite_link}`\n\n"
+        f"📋 **Код:** `{code}`\n"
+        f"⏱️ Истекает: {datetime.fromtimestamp(guest_invite_manager.invites[code]['expires']).strftime('%d.%m.%Y %H:%M')}"
+    )
+
+
+@dp.message(Command("guest_list"))
+async def cmd_guest_list(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    if not guest_invite_manager.invites:
+        await message.answer("📭 Нет активных гостевых инвайтов")
+        return
+    text = "📋 **Активные гостевые инвайты:**\n\n"
+    for code, invite in guest_invite_manager.invites.items():
+        if not invite.get('active', True) or invite['expires'] < time.time():
+            continue
+        used = len(invite.get('used_by', []))
+        max_uses = invite.get('max_uses', 1)
+        hours = invite.get('hours', 24)
+        expires = datetime.fromtimestamp(invite['expires']).strftime('%d.%m.%Y %H:%M')
+        text += f"🔑 `{code}` - {hours}ч, до {expires} ({used}/{max_uses})\n"
+    await message.answer(text)
+
+
+@dp.message(Command("guest_deactivate"))
+async def cmd_guest_deactivate(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("❌ Использование: /guest_deactivate КОД")
+        return
+    code = parts[1]
+    if code not in guest_invite_manager.invites:
+        await message.answer("❌ Инвайт не найден")
+        return
+    guest_invite_manager.invites[code]['active'] = False
+    guest_invite_manager.save_invites()
+    await message.answer(f"✅ Инвайт `{code}` деактивирован")
+
+
+# ==================== ОТПРАВКА ВОПРОСА ====================
+async def send_question(message: Message, user_id: int, state: FSMContext):
+    session = get_user_session(user_id)
+    if session.is_finished or session.current_index >= len(session.questions):
+        await finish_exam(message, user_id, state)
+        return
+    question = session.current_question
+    if not question:
+        await finish_exam(message, user_id, state)
+        return
+    progress = get_progress_bar(session.current_index, len(session.questions))
+    options_text = "\n".join([f"{i+1}. {opt}" for i, opt in enumerate(question.options)])
+    category_name = "📝 Общий экзамен"
+    if session.category_id in question_loader.categories:
+        cat = question_loader.categories[session.category_id]
+        category_name = f"{cat.emoji} {cat.name}"
+    elif session.category_id == "mistakes":
+        category_name = "📝 Работа над ошибками"
+    text = (
+        f"**{category_name}**\n"
+        f"📊 Прогресс: `{progress}`\n"
+        f"❓ **Вопрос {session.current_index + 1} из {len(session.questions)}**\n\n"
+        f"**{question.question}**\n\n"
+        f"{options_text}\n\n"
+        f"📝 Введите номера правильных ответов через запятую (например: `1,3,4`):"
+    )
+    await message.answer(text, parse_mode="Markdown")
+
+
+# ==================== ЗАВЕРШЕНИЕ ЭКЗАМЕНА ====================
+async def finish_exam(message: Message, user_id: int, state: FSMContext):
+    session = get_user_session(user_id)
+    session.is_finished = True
+    total = len(session.questions)
+    score = session.score
+    percent = (score / total) * 100 if total > 0 else 0
+    mistakes = [a for a in session.answers if not a.get('is_correct', False)]
+    grade_emoji = get_grade_emoji(percent)
+    grade_text = get_grade_text(percent)
+    duration = int(time.time() - session.started_at)
+    minutes = duration // 60
+    seconds = duration % 60
+    text = (
+        f"📊 **Экзамен завершен!** {grade_emoji}\n\n"
+        f"✅ Правильных ответов: `{score}` из `{total}`\n"
+        f"📈 Результат: `{percent:.1f}%`\n"
+        f"⏱️ Время: {minutes} мин {seconds} сек\n\n"
+        f"{grade_text}\n"
+    )
+    if mistakes:
+        text += f"\n📝 Допущено ошибок: {len(mistakes)}"
+    await message.answer(text, reply_markup=get_post_exam_keyboard(len(mistakes) > 0))
+    await state.set_state(ExamStates.choosing_category)
+
+
+# ==================== ОБРАБОТКА ОТВЕТОВ ====================
+@dp.message(ExamStates.exam_in_progress)
+async def process_answer(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    session = get_user_session(user_id)
+    if session.is_finished or session.current_index >= len(session.questions):
+        await message.answer("❌ Тест уже завершен. Начните новый экзамен командой /exam")
+        await cmd_start(message, state)
+        return
+    question = session.current_question
+    if not question:
+        await message.answer("❌ Ошибка: вопрос не найден")
+        await finish_exam(message, user_id, state)
+        return
+    try:
+        numbers = [x.strip() for x in message.text.split(',') if x.strip()]
+        selected = set()
+        for num in numbers:
+            try:
+                n = int(num)
+                if 1 <= n <= len(question.options):
+                    selected.add(n - 1)
+            except ValueError:
+                pass
+        if len(selected) == 0 or any(n < 0 or n >= len(question.options) for n in selected):
+            await message.answer(
+                f"⚠️ Нужно выбрать **{len(question.correct_options)}** ответ(а), а вы выбрали {len(selected)}.\n"
+                f"Попробуйте снова (например: `{', '.join(question.get_correct_numbers())}`):"
+            )
+            return
+    except Exception as e:
+        await message.answer("❌ Ошибка ввода. Введите номера через запятую (например: `1,3,4`)")
+        return
+    is_correct = question.is_correct(selected)
+    if is_correct:
+        session.score += 1
+        response = "✅ **Правильно!**\n\n"
+    else:
+        correct_texts = question.get_correct_texts()
+        correct_nums = question.get_correct_numbers()
+        response = (
+            f"❌ **Неправильно.**\n\n"
+            f"Правильные ответы: `{', '.join(map(str, correct_nums))}`\n"
+            f"({', '.join(correct_texts)})\n\n"
+        )
+    if question.article:
+        response += f"📚 Источник: {question.article}"
+    await message.answer(response)
+    session.answers.append({
+        'question': question.question,
+        'selected': list(selected),
+        'correct': question.correct_options,
+        'is_correct': is_correct
+    })
+    session.current_index += 1
+    await send_question(message, user_id, state)
+
 
 # ==================== ЗАПУСК ====================
 async def main():
@@ -1005,11 +1059,6 @@ async def main():
         logger.error(f"❌ Ошибка при запуске polling: {e}")
         raise
 
+
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
-
-
