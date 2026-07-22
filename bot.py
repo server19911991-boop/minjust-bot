@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 # ==================== КОНФИГУРАЦИЯ ====================
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "").split(",") if id.strip()]
+ADMIN_IDS = [551931619]  # Ваш ID
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1005,6 +1005,9 @@ async def main():
 # ==================== АДМИН-ПАНЕЛЬ ====================
 @dp.message(Command("admin_panel"))
 async def cmd_admin_panel(message: Message):
+    # Отладка
+    logger.info(f"Пользователь {message.from_user.id} пытается войти в админку")
+    logger.info(f"Список админов: {ADMIN_IDS}")
     """Панель управления инвайтами для администраторов"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("❌ У вас нет прав для этой команды")
