@@ -692,17 +692,6 @@ async def cmd_admin_panel(message: Message):
 
 
 # Универсальный обработчик для отладки всех callback
-@dp.callback_query()
-
-@dp.callback_query(F.data == "reset_progress")
-async def reset_progress(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    session = get_user_session(user_id)
-    session.seen_questions = []
-    await callback.answer("🔄 История просмотров сброшена!", show_alert=True)
-
-
-@dp.callback_query(F.data == "help")
 async def show_help(callback: CallbackQuery):
     help_text = (
         "❓ **Помощь**\n\n"
