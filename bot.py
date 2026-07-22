@@ -1001,5 +1001,197 @@ async def main():
     print("=" * 60)
     await dp.start_polling(bot)
 
+# ==================== АДМИН-ПАНЕЛЬ ====================
+# ==================== АДМИН-ПАНЕЛЬ ====================
+@dp.message(Command("admin_panel"))
+async def cmd_admin_panel(message: Message):
+    """Панель управления инвайтами для администраторов"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔑 Создать инвайт (24ч)", callback_data="invite_24"),
+            InlineKeyboardButton(text="🔑 Создать инвайт (48ч)", callback_data="invite_48")
+        ],
+        [
+            InlineKeyboardButton(text="🔑 Создать инвайт (72ч)", callback_data="invite_72"),
+            InlineKeyboardButton(text="📋 Активные инвайты", callback_data="list_invites")
+        ],
+        [
+            InlineKeyboardButton(text="❌ Деактивировать инвайт", callback_data="deactivate_invite")
+        ],
+        [
+            InlineKeyboardButton(text="📊 Статистика бота", callback_data="bot_stats")
+        ]
+    ])
+    
+    await message.answer(
+        "👑 **Админ-панель управления инвайтами**\n\n"
+        "Выберите действие:",
+        reply_markup=keyboard
+    )
+
+@dp.callback_query(F.data.startswith("invite_"))
+async def create_invite_from_panel(callback: CallbackQuery):
+    """Создает инвайт из админ-панели"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав", show_alert=True)
+        return
+    
+    hours = int(callback.data.replace("invite_", ""))
+    code = guest_invite_manager.create_invite(callback.from_user.id, hours)
+    bot_username = (await bot.get_me()).username
+    invite_link = f"https://t.me/{bot_username}?start=guest_{code}"
+    
+    expires = datetime.fromtimestamp(guest_invite_manager.invites[code]['expires']).strftime('%d.%m.%Y %H:%M')
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📋 Активные инвайты", callback_data="list_invites"),
+            InlineKeyboardButton(text="🔙 Назад в админку", callback_data="back_to_admin")
+        ]
+    ])
+    
+    await callback.message.edit_text(
+        f"✅ **Гостевая ссылка создана!**\n\n"
+        f"🔑 **Код:** `{code}`\n"
+        f"⏱️ **Действует:** {hours} часов\n"
+        f"⏰ **Истекает:** {expires}\n\n"
+        f"📎 **Ссылка для отправки:**\n"
+        f"`{invite_link}`\n\n"
+        f"📤 Скопируйте ссылку и отправьте пользователю.",
+        reply_markup=keyboard
+    )
+    await callback.answer(f"✅ Инвайт на {hours} часов создан!")
+
+@dp.callback_query(F.data == "list_invites")
+async def list_active_invites(callback: CallbackQuery):
+    """Показывает активные инвайты с кнопками управления"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав", show_alert=True)
+        return
+    
+    if not guest_invite_manager.invites:
+        await callback.message.edit_text(
+            "📭 **Нет активных инвайтов**\n\n"
+            "Создайте новый инвайт через админ-панель.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад в админку", callback_data="back_to_admin")]
+            ])
+        )
+        await callback.answer()
+        return
+    
+    text = "📋 **Активные гостевые инвайты:**\n\n"
+    buttons = []
+    
+    for code, invite in guest_invite_manager.invites.items():
+        if not invite.get('active', True):
+            continue
+        if invite['expires'] < time.time():
+            continue
+        
+        used = len(invite.get('used_by', []))
+        max_uses = invite.get('max_uses', 1)
+        hours = invite.get('hours', 24)
+        expires = datetime.fromtimestamp(invite['expires']).strftime('%d.%m.%Y %H:%M')
+        
+        text += f"🔑 `{code}`\n"
+        text += f"   ⏱️ {hours}ч, до {expires}\n"
+        text += f"   👤 Использован: {used}/{max_uses}\n\n"
+        
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"❌ Деактивировать {code}", 
+                callback_data=f"deactivate_{code}"
+            )
+        ])
+    
+    buttons.append([InlineKeyboardButton(text="🔙 Назад в админку", callback_data="back_to_admin")])
+    buttons.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="list_invites")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("deactivate_"))
+async def deactivate_invite_from_list(callback: CallbackQuery):
+    """Деактивирует инвайт из списка"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав", show_alert=True)
+        return
+    
+    code = callback.data.replace("deactivate_", "")
+    if code not in guest_invite_manager.invites:
+        await callback.answer("❌ Инвайт не найден", show_alert=True)
+        return
+    
+    guest_invite_manager.invites[code]['active'] = False
+    guest_invite_manager.save_invites()
+    
+    await callback.answer(f"✅ Инвайт {code} деактивирован", show_alert=True)
+    await list_active_invites(callback)
+
+@dp.callback_query(F.data == "back_to_admin")
+async def back_to_admin_panel(callback: CallbackQuery):
+    """Возвращает в админ-панель"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав", show_alert=True)
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔑 Создать инвайт (24ч)", callback_data="invite_24"),
+            InlineKeyboardButton(text="🔑 Создать инвайт (48ч)", callback_data="invite_48")
+        ],
+        [
+            InlineKeyboardButton(text="🔑 Создать инвайт (72ч)", callback_data="invite_72"),
+            InlineKeyboardButton(text="📋 Активные инвайты", callback_data="list_invites")
+        ],
+        [
+            InlineKeyboardButton(text="❌ Деактивировать инвайт", callback_data="deactivate_invite")
+        ],
+        [
+            InlineKeyboardButton(text="📊 Статистика бота", callback_data="bot_stats")
+        ]
+    ])
+    
+    await callback.message.edit_text(
+        "👑 **Админ-панель управления инвайтами**\n\n"
+        "Выберите действие:",
+        reply_markup=keyboard
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "bot_stats")
+async def show_bot_stats(callback: CallbackQuery):
+    """Показывает статистику бота"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав", show_alert=True)
+        return
+    
+    total_questions = len(question_loader.questions)
+    total_categories = len([c for c in question_loader.categories.values() if c.count > 0])
+    active_invites = sum(1 for inv in guest_invite_manager.invites.values() 
+                        if inv.get('active', True) and inv['expires'] > time.time())
+    
+    text = (
+        "📊 **Статистика бота**\n\n"
+        f"📚 Всего вопросов: {total_questions}\n"
+        f"📂 Категорий: {total_categories}\n"
+        f"🔑 Активных инвайтов: {active_invites}\n"
+        f"👥 Всего создано инвайтов: {len(guest_invite_manager.invites)}\n"
+        f"⏱️ Время работы: с {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="bot_stats")],
+        [InlineKeyboardButton(text="🔙 Назад в админку", callback_data="back_to_admin")]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
 if __name__ == "__main__":
     asyncio.run(main())
