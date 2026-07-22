@@ -465,7 +465,53 @@ dp = Dispatcher(storage=storage)
 question_loader = QuestionLoader()
 
 # ==================== КЛАВИАТУРЫ ====================
-def get_main_menu_keyboard() -> InlineKeyboardMarkup:
+def get_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
+    buttons = []
+    categories = []
+    for cat_id, category in question_loader.categories.items():
+        if category.count > 0 and cat_id != 'general':
+            categories.append((cat_id, category))
+    categories.sort(key=lambda x: x[1].count, reverse=True)
+    
+    for i in range(0, len(categories), 2):
+        row = []
+        cat_id, category = categories[i]
+        row.append(InlineKeyboardButton(
+            text=category.display_name,
+            callback_data=f"category_{cat_id}"
+        ))
+        if i + 1 < len(categories):
+            cat_id2, category2 = categories[i + 1]
+            row.append(InlineKeyboardButton(
+                text=category2.display_name,
+                callback_data=f"category_{cat_id2}"
+            ))
+        buttons.append(row)
+    
+    if question_loader.questions:
+        buttons.append([
+            InlineKeyboardButton(
+                text="📝 ЭКЗАМЕН (выбрать количество)",
+                callback_data="exam_choose_count"
+            )
+        ])
+    
+    row = [
+        InlineKeyboardButton(text="📊 Моя статистика", callback_data="my_stats"),
+        InlineKeyboardButton(text="🔄 Сбросить прогресс", callback_data="reset_progress"),
+    ]
+    buttons.append(row)
+    
+    buttons.append([
+        InlineKeyboardButton(text="❓ Помощь", callback_data="help")
+    ])
+    
+    if user_id and user_id in ADMIN_IDS:
+        buttons.append([
+            InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")
+        ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
     buttons = []
     categories = []
     for cat_id, category in question_loader.categories.items():
@@ -632,7 +678,7 @@ async def cmd_start(message: Message, state: FSMContext):
         f"📊 **Количество тем:** {len([c for c in question_loader.categories.values() if c.count > 0 and c.id != 'general'])}\n\n"
         f"Выберите тему для подготовки или начните экзамен:"
     )
-    await message.answer(welcome_text, reply_markup=get_main_menu_keyboard())
+    await message.answer(welcome_text, reply_markup=get_main_menu_keyboard(user_id))
     await state.set_state(ExamStates.choosing_category)
 
 @dp.message(Command("exam"))
@@ -656,14 +702,14 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.message.edit_text(
             "📚 **Главное меню:**\n\nВыберите тему для подготовки:",
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=get_main_menu_keyboard(user_id)
         )
     except Exception as e:
         if "message is not modified" in str(e):
             await callback.message.delete()
             await callback.message.answer(
                 "📚 **Главное меню:**\n\nВыберите тему для подготовки:",
-                reply_markup=get_main_menu_keyboard()
+                reply_markup=get_main_menu_keyboard(user_id)
             )
         else:
             raise e
@@ -679,6 +725,16 @@ async def reset_progress(callback: CallbackQuery):
     await callback.answer("🔄 История просмотров сброшена! Теперь вопросы будут показываться заново.", show_alert=True)
 
 @dp.callback_query(F.data == "help")
+
+@dp.callback_query(F.data == "admin_panel")
+async def admin_panel_callback(callback: CallbackQuery):
+    """Обработчик кнопки админ-панели"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ У вас нет прав", show_alert=True)
+        return
+    
+    await cmd_admin_panel(callback.message)
+    await callback.answer()
 async def show_help(callback: CallbackQuery):
     help_text = (
         "❓ **Помощь**\n\n"
