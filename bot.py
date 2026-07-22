@@ -425,8 +425,11 @@ def get_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
 
 
 def get_count_choice_keyboard(category_id: str = None) -> InlineKeyboardMarkup:
+    logger.info(f"🔍 KEYBOARD: category_id до преобразования = {category_id}")
     if category_id in CATEGORY_MAP:
+        logger.info(f"🔍 KEYBOARD: преобразование {category_id} -> {CATEGORY_MAP[category_id]}")
         category_id = CATEGORY_MAP[category_id]
+    logger.info(f"🔍 KEYBOARD: category_id после преобразования = {category_id}")
     cat_id = category_id if category_id and category_id != "all" else "all"
     buttons = [
         [
@@ -603,7 +606,9 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     logger.info(f"🔍 ВЫБОР КОЛИЧЕСТВА: count={count}, category={category_id}")
     
     if category_id in CATEGORY_MAP:
+        logger.info(f"🔍 KEYBOARD: преобразование {category_id} -> {CATEGORY_MAP[category_id]}")
         category_id = CATEGORY_MAP[category_id]
+    logger.info(f"🔍 KEYBOARD: category_id после преобразования = {category_id}")
     
     session = get_user_session(user_id)
     
