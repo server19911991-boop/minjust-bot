@@ -693,35 +693,6 @@ async def cmd_admin_panel(message: Message):
 
 # Универсальный обработчик для отладки всех callback
 @dp.callback_query()
-async def debug_callback(callback: CallbackQuery):
-    logger.info(f"🔍 ВСЕ CALLBACK: {callback.data}")
-    logger.info(f"🔍 USER: {callback.from_user.id}")
-    # Пропускаем дальше
-    await callback.continue_propagation()
-
-@dp.callback_query(F.data == "back_to_main")
-async def back_to_main(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    if user_id in user_sessions:
-        session = user_sessions[user_id]
-        session.is_finished = True
-    await state.set_state(ExamStates.choosing_category)
-    try:
-        await callback.message.edit_text(
-            "📚 **Главное меню:**\n\nВыберите тему для подготовки:",
-            reply_markup=get_main_menu_keyboard(user_id)
-        )
-    except Exception as e:
-        if "message is not modified" in str(e):
-            await callback.message.delete()
-            await callback.message.answer(
-                "📚 **Главное меню:**\n\nВыберите тему для подготовки:",
-                reply_markup=get_main_menu_keyboard(user_id)
-            )
-        else:
-            raise e
-    await callback.answer()
-
 
 @dp.callback_query(F.data == "reset_progress")
 async def reset_progress(callback: CallbackQuery):
