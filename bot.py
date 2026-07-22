@@ -748,6 +748,87 @@ async def select_category(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(info_text, reply_markup=get_category_info_keyboard(category_id))
     await callback.answer()
 
+@dp.callback_query(F.data.startswith("start_test_"))
+async def start_test(callback: CallbackQuery, state: FSMContext):
+    logger.info(f"🔍 ЗАПУСК ТЕСТА: {callback.data}")
+    logger.info(f"🔍 USER ID: {callback.from_user.id}")
+    category_id = callback.data.replace("start_test_", "")
+    logger.info(f"🔍 CATEGORY ID: {category_id}")
+    
+    category = question_loader.categories.get(category_id)
+    if not category or category.count == 0:
+        await callback.answer("❌ В этой категории нет вопросов", show_alert=True)
+        return
+    
+    await callback.message.edit_text(
+        f"{category.emoji} **{category.name}**\n\n"
+        f"📊 В категории {category.count} вопросов.\n"
+        f"Выберите количество вопросов для теста:",
+        reply_markup=get_count_choice_keyboard(category_id)
+    )
+    await state.set_state(ExamStates.choosing_count)
+    await callback.answer()
+
+
+
+@dp.callback_query(F.data.startswith("count_"))
+async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
+    logger.info(f"🔍 ВЫБОР КОЛИЧЕСТВА: {callback.data}")
+    logger.info(f"🔍 USER ID: {callback.from_user.id}")
+    user_id = callback.from_user.id
+    parts = callback.data.split("_")
+    count = int(parts[1])
+    category_id = parts[2] if len(parts) > 2 else "all"
+    logger.info(f"🔍 COUNT: {count}, CATEGORY: {category_id}")
+    
+    # Исправляем ID категории
+    if category_id in CATEGORY_MAP:
+        category_id = CATEGORY_MAP[category_id]
+    
+    if category_id == "all":
+        questions = question_loader.get_all_questions(count)
+        category_display = "📝 Общий экзамен"
+        session = get_user_session(user_id)
+        session.seen_questions = []
+    else:
+        session = get_user_session(user_id)
+        session.category_id = category_id
+        is_exam = (category_id == "exam_choose_count" or "exam" in callback.data)
+        
+        if is_exam:
+            questions = question_loader.get_questions_by_category(category_id, count)
+        else:
+            questions = question_loader.get_questions_for_category(category_id, session.seen_questions, count)
+            for q in questions:
+                if q.id not in session.seen_questions:
+                    session.seen_questions.append(q.id)
+            if len(questions) < count:
+                session.seen_questions = []
+                questions = question_loader.get_questions_for_category(category_id, session.seen_questions, count)
+                for q in questions:
+                    if q.id not in session.seen_questions:
+                        session.seen_questions.append(q.id)
+    
+    if not questions:
+        await callback.answer("❌ Недостаточно вопросов в выбранной категории", show_alert=True)
+        return
+    
+    session = get_user_session(user_id)
+    session.questions = questions
+    session.current_index = 0
+    session.score = 0
+    session.answers = []
+    session.category_id = category_id
+    session.started_at = time.time()
+    session.is_finished = False
+    session.total_attempts += 1
+    session.question_count = count
+    
+    await state.set_state(ExamStates.exam_in_progress)
+    await callback.message.delete()
+    await send_question(callback.message, user_id, state)
+    await callback.answer(f"🚀 Начинаем экзамен из {count} вопросов!")
+
 @dp.callback_query(F.data == "my_stats")
 async def show_stats(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -874,81 +955,4 @@ if __name__ == "__main__":
 
 
 
-@dp.callback_query(F.data.startswith("start_test_"))
-async def start_test(callback: CallbackQuery, state: FSMContext):
-    logger.info(f"🔍 ЗАПУСК ТЕСТА: {callback.data}")
-    logger.info(f"🔍 USER ID: {callback.from_user.id}")
-    category_id = callback.data.replace("start_test_", "")
-    logger.info(f"🔍 CATEGORY ID: {category_id}")
-    
-    category = question_loader.categories.get(category_id)
-    if not category or category.count == 0:
-        await callback.answer("❌ В этой категории нет вопросов", show_alert=True)
-        return
-    
-    await callback.message.edit_text(
-        f"{category.emoji} **{category.name}**\n\n"
-        f"📊 В категории {category.count} вопросов.\n"
-        f"Выберите количество вопросов для теста:",
-        reply_markup=get_count_choice_keyboard(category_id)
-    )
-    await state.set_state(ExamStates.choosing_count)
-    await callback.answer()
 
-@dp.callback_query(F.data.startswith("count_"))
-async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
-    logger.info(f"🔍 ВЫБОР КОЛИЧЕСТВА: {callback.data}")
-    logger.info(f"🔍 USER ID: {callback.from_user.id}")
-    user_id = callback.from_user.id
-    parts = callback.data.split("_")
-    count = int(parts[1])
-    category_id = parts[2] if len(parts) > 2 else "all"
-    logger.info(f"🔍 COUNT: {count}, CATEGORY: {category_id}")
-    
-    # Исправляем ID категории
-    if category_id in CATEGORY_MAP:
-        category_id = CATEGORY_MAP[category_id]
-    
-    if category_id == "all":
-        questions = question_loader.get_all_questions(count)
-        category_display = "📝 Общий экзамен"
-        session = get_user_session(user_id)
-        session.seen_questions = []
-    else:
-        session = get_user_session(user_id)
-        session.category_id = category_id
-        is_exam = (category_id == "exam_choose_count" or "exam" in callback.data)
-        
-        if is_exam:
-            questions = question_loader.get_questions_by_category(category_id, count)
-        else:
-            questions = question_loader.get_questions_for_category(category_id, session.seen_questions, count)
-            for q in questions:
-                if q.id not in session.seen_questions:
-                    session.seen_questions.append(q.id)
-            if len(questions) < count:
-                session.seen_questions = []
-                questions = question_loader.get_questions_for_category(category_id, session.seen_questions, count)
-                for q in questions:
-                    if q.id not in session.seen_questions:
-                        session.seen_questions.append(q.id)
-    
-    if not questions:
-        await callback.answer("❌ Недостаточно вопросов в выбранной категории", show_alert=True)
-        return
-    
-    session = get_user_session(user_id)
-    session.questions = questions
-    session.current_index = 0
-    session.score = 0
-    session.answers = []
-    session.category_id = category_id
-    session.started_at = time.time()
-    session.is_finished = False
-    session.total_attempts += 1
-    session.question_count = count
-    
-    await state.set_state(ExamStates.exam_in_progress)
-    await callback.message.delete()
-    await send_question(callback.message, user_id, state)
-    await callback.answer(f"🚀 Начинаем экзамен из {count} вопросов!")
