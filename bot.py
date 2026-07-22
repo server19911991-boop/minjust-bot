@@ -79,6 +79,43 @@ class Question:
     def get_correct_numbers(self) -> List[int]:
         return [i + 1 for i in sorted(self.correct_options)]
 
+@dataclass
+class Category:
+    """Модель категории"""
+    id: str
+    name: str
+    emoji: str
+    description: str
+    marker: str
+    questions: List[int] = field(default_factory=list)
+    
+    @property
+    def count(self) -> int:
+        return len(self.questions)
+    
+    @property
+    def display_name(self) -> str:
+        return f"{self.emoji} {self.name} ({self.count})"
+
+    """Модель вопроса"""
+    id: int
+    question: str
+    options: List[str]
+    correct_options: List[int]
+    article: str = ""
+    category: str = "general"
+    explanation: str = ""
+    is_from_exam: bool = False
+    
+    def get_correct_texts(self) -> List[str]:
+        return [self.options[i] for i in self.correct_options]
+    
+    def is_correct(self, selected: Set[int]) -> bool:
+        return set(self.correct_options) == selected
+    
+    def get_correct_numbers(self) -> List[int]:
+        return [i + 1 for i in sorted(self.correct_options)]
+
 
 @dataclass
 
@@ -299,6 +336,50 @@ class QuestionLoader:
         return None
 
 
+
+# ==================== УПРАВЛЕНИЕ ГОСТЕВЫМИ ИНВАЙТАМИ ====================
+class GuestInviteManager:
+    def __init__(self):
+        self.invites_file = "guest_invites.json"
+        self.invites = {}
+        self.load_invites()
+    
+    def load_invites(self):
+        try:
+            with open(self.invites_file, 'r', encoding='utf-8') as f:
+                self.invites = json.load(f)
+        except FileNotFoundError:
+            self.save_invites()
+    
+    def save_invites(self):
+        with open(self.invites_file, 'w', encoding='utf-8') as f:
+            json.dump(self.invites, f, ensure_ascii=False, indent=2)
+    
+    def create_invite(self, created_by: int, hours: int = 24) -> str:
+        code = secrets.token_hex(8).upper()
+        code = '-'.join([code[i:i+4] for i in range(0, len(code), 4)])
+        expires = time.time() + hours * 3600
+        self.invites[code] = {
+            'created_by': created_by,
+            'created_at': time.time(),
+            'expires': expires,
+            'hours': hours,
+            'used_by': [],
+            'active': True,
+            'max_uses': 1
+        }
+        self.save_invites()
+        return code
+
+
+
+# ==================== СОСТОЯНИЯ ====================
+class ExamStates(StatesGroup):
+    choosing_category = State()
+    choosing_count = State()
+    exam_in_progress = State()
+
+
 class UserSession:
     """Сессия пользователя"""
     user_id: int
@@ -344,13 +425,13 @@ class UserSession:
 
 # ==================== ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ ====================
 user_sessions: Dict[int, UserSession] = {}
+guest_invite_manager = GuestInviteManager()
 
 def get_user_session(user_id: int) -> UserSession:
     if user_id not in user_sessions:
         user_sessions[user_id] = UserSession(user_id=user_id)
     return user_sessions[user_id]
 
-def get_user_session(user_id: int) -> UserSession:
     if user_id not in user_sessions:
         user_sessions[user_id] = UserSession(user_id=user_id)
     return user_sessions[user_id]
