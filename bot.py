@@ -58,115 +58,6 @@ CATEGORY_MAP = {
 
 # ==================== ДАТА-КЛАССЫ ====================
 @dataclass
-class Question:
-    """Модель вопроса"""
-    id: int
-    question: str
-    options: List[str]
-    correct_options: List[int]
-    article: str = ""
-    category: str = "general"
-    explanation: str = ""
-    is_from_exam: bool = False
-    
-    def get_correct_texts(self) -> List[str]:
-        return [self.options[i] for i in self.correct_options]
-    
-    def is_correct(self, selected: Set[int]) -> bool:
-        return set(self.correct_options) == selected
-    
-    def get_correct_numbers(self) -> List[int]:
-        return [i + 1 for i in sorted(self.correct_options)]
-
-@dataclass
-class Category:
-    """Модель категории"""
-    id: str
-    name: str
-    emoji: str
-    description: str
-    marker: str
-    questions: List[int] = field(default_factory=list)
-    
-    @property
-    def count(self) -> int:
-        return len(self.questions)
-    
-    @property
-    def display_name(self) -> str:
-        return f"{self.emoji} {self.name} ({self.count})"
-
-@dataclass
-
-# ==================== УПРАВЛЕНИЕ ГОСТЕВЫМИ ИНВАЙТАМИ ====================
-class GuestInviteManager:
-    def __init__(self):
-        self.invites_file = "guest_invites.json"
-        self.invites = {}
-        self.load_invites()
-    
-    def load_invites(self):
-        try:
-            with open(self.invites_file, 'r', encoding='utf-8') as f:
-                self.invites = json.load(f)
-        except FileNotFoundError:
-            self.save_invites()
-    
-    def save_invites(self):
-        with open(self.invites_file, 'w', encoding='utf-8') as f:
-            json.dump(self.invites, f, ensure_ascii=False, indent=2)
-    
-    def create_invite(self, created_by: int, hours: int = 24) -> str:
-        """Создает инвайт на определенное количество часов"""
-        code = secrets.token_hex(8).upper()
-        code = '-'.join([code[i:i+4] for i in range(0, len(code), 4)])
-        
-        expires = time.time() + hours * 3600
-        
-        self.invites[code] = {
-            'created_by': created_by,
-            'created_at': time.time(),
-            'expires': expires,
-            'hours': hours,
-            'used_by': [],
-            'active': True,
-            'max_uses': 1
-        }
-        
-        self.save_invites()
-        return code
-    
-    def use_invite(self, code: str, user_id: int, username: str = None) -> Tuple[bool, str, Optional[int]]:
-        """Использует инвайт, возвращает (успех, сообщение, часы_доступа)"""
-        if code not in self.invites:
-            return False, "INVALID", None
-        
-        invite = self.invites[code]
-        
-        if not invite.get('active', True):
-            return False, "INACTIVE", None
-        
-        if invite['expires'] < time.time():
-            return False, "EXPIRED", None
-        
-        if len(invite['used_by']) >= invite.get('max_uses', 1):
-            return False, "LIMIT_REACHED", None
-        
-        # Проверяем, не использовал ли этот пользователь уже
-        for used in invite['used_by']:
-            if used.get('user_id') == user_id:
-                return False, "ALREADY_USED", None
-        
-        invite['used_by'].append({
-            'user_id': user_id,
-            'username': username,
-            'time': time.time()
-        })
-        
-        self.save_invites()
-        return True, "SUCCESS", invite['hours']
-
-
 class UserSession:
     """Сессия пользователя"""
     user_id: int
@@ -179,276 +70,36 @@ class UserSession:
     is_finished: bool = False
     total_attempts: int = 0
     question_count: int = 20
-    seen_questions: List[int] = field(default_factory=list)  # ID уже показанных вопросов
-    all_questions_ids: List[int] = field(default_factory=list)  # Все ID вопросов в категории
-    
+    seen_questions: List[int] = field(default_factory=list)
+    all_questions_ids: List[int] = field(default_factory=list)
+
+    def __post_init__(self):
+        """Инициализация после создания"""
+        if not self.started_at:
+            self.started_at = time.time()
+
     @property
     def total_questions(self) -> int:
         return len(self.questions)
-    
+
     @property
     def progress(self) -> float:
         if not self.questions:
             return 0
         return (self.current_index / len(self.questions)) * 100
-    
+
     @property
     def current_question(self) -> Optional[Question]:
         if 0 <= self.current_index < len(self.questions):
             return self.questions[self.current_index]
         return None
-    
+
     @property
     def correct_percent(self) -> float:
         if not self.answers:
             return 0
         correct = sum(1 for a in self.answers if a.get('is_correct', False))
         return (correct / len(self.answers)) * 100
-
-# ==================== КАТЕГОРИИ ВОПРОСОВ ====================
-class QuestionCategory:
-    CATEGORIES = {
-        'constitutional': {
-            'name': 'Конституционное право',
-            'emoji': '⚖️',
-            'description': 'Вопросы по Конституции Республики Беларусь',
-            'marker': '(Блок Конституционное право)'
-        },
-        'civil_law': {
-            'name': 'Гражданское законодательство',
-            'emoji': '📘',
-            'description': 'Вопросы по Гражданскому кодексу (ГК)',
-            'marker': '(Блок Гражданское право)'
-        },
-        'labor_law': {
-            'name': 'Трудовое законодательство',
-            'emoji': '👔',
-            'description': 'Вопросы по Трудовому кодексу (ТК)',
-            'marker': '(Блок Трудовое право)'
-        },
-        'civil_procedure': {
-            'name': 'Гражданское судопроизводство',
-            'emoji': '⚖️',
-            'description': 'Вопросы по Кодексу гражданского судопроизводства (КГС)',
-            'marker': '(Блок Гражданское судопроизводство)'
-        },
-        'executive_production': {
-            'name': 'Исполнительное производство',
-            'emoji': '⚙️',
-            'description': 'Вопросы по Закону об исполнительном производстве',
-            'marker': '(Блок Исполнительное производство)'
-        },
-        'criminal_tax_law': {
-            'name': 'Налоговое и уголовное законодательство',
-            'emoji': '🔒',
-            'description': 'Вопросы по УК и НК',
-            'marker': '(Блок Налоговое и уголовное законодательство)'
-        },
-        'admin_law': {
-            'name': 'Административное право',
-            'emoji': '📋',
-            'description': 'Вопросы по КоАП и ПИКоАП',
-            'marker': '(Блок Административное право)'
-        },
-        'business_law': {
-            'name': 'Закон о хозяйственных обществах',
-            'emoji': '🏢',
-            'description': 'Вопросы по Закону о хозяйственных обществах',
-            'marker': '(Блок Закон о хозяйственных обществах)'
-        },
-        'bankruptcy': {
-            'name': 'Банкротство',
-            'emoji': '🏚️',
-            'description': 'Вопросы по Закону о банкротстве',
-            'marker': '(Блок Банкротство)'
-        },
-        'concession_investment': {
-            'name': 'Концессия и инвестиции',
-            'emoji': '💼',
-            'description': 'Вопросы по Законам о концессиях и инвестициях',
-            'marker': '(Блок Концессия и инвестиции)'
-        },
-        'control_legalization': {
-            'name': 'Проверки и легализация',
-            'emoji': '🔍',
-            'description': 'Вопросы по Закону о легализации и Указу о проверках',
-            'marker': '(Блок Проверки и легализация)'
-        },
-        'licensing_ethics': {
-            'name': 'Лицензирование и этика',
-            'emoji': '📜',
-            'description': 'Вопросы по лицензированию, правилам и этике',
-            'marker': '(Блок Лицензирование и этика)'
-        },
-        'ministry_exam': {
-            'name': 'Вопросы с экзамена Минюста',
-            'emoji': '📝',
-            'description': 'Вопросы, которые были на реальных экзаменах в Министерстве юстиции',
-            'marker': '(Блок Вопросы с экзамена Минюста)'
-        }
-    }
-    
-    @classmethod
-    def get_all_categories(cls) -> List[dict]:
-        return [
-            {
-                'id': cat_id,
-                'name': data['name'],
-                'emoji': data['emoji'],
-                'description': data['description'],
-                'marker': data['marker']
-            }
-            for cat_id, data in cls.CATEGORIES.items()
-        ]
-    
-    @classmethod
-    def get_category(cls, cat_id: str) -> Optional[dict]:
-        return cls.CATEGORIES.get(cat_id)
-    
-    @classmethod
-    def categorize_question(cls, question: dict) -> str:
-        article = question.get('article', '')
-        for cat_id, data in cls.CATEGORIES.items():
-            marker = data['marker']
-            if marker.lower() in article.lower():
-                return cat_id
-        return 'general'
-
-# ==================== ЗАГРУЗКА ДАННЫХ ====================
-class QuestionLoader:
-    def __init__(self):
-        self.questions: List[Question] = []
-        self.categories: Dict[str, Category] = {}
-        self._load_questions()
-        self._build_categories()
-    
-    def _load_questions(self):
-        try:
-            with open('questions.json', 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                for item in data:
-                    category = QuestionCategory.categorize_question(item)
-                    question = Question(
-                        id=item.get('id', 0),
-                        question=item.get('question', ''),
-                        options=item.get('options', []),
-                        correct_options=item.get('correct_options', []),
-                        article=item.get('article', ''),
-                        category=category,
-                        explanation=item.get('explanation', ''),
-                        is_from_exam=item.get('is_from_exam', False)
-                    )
-                    self.questions.append(question)
-            logger.info(f"✅ Загружено {len(self.questions)} вопросов")
-            from collections import Counter
-            cat_stats = Counter(q.category for q in self.questions)
-            for cat_id, count in cat_stats.items():
-                cat_name = QuestionCategory.CATEGORIES.get(cat_id, {}).get('name', cat_id)
-                logger.info(f"  {cat_name}: {count} вопросов")
-        except FileNotFoundError:
-            logger.error("❌ Файл questions.json не найден!")
-            self.questions = []
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ Ошибка в JSON файле: {e}")
-            self.questions = []
-        except Exception as e:
-            logger.error(f"❌ Ошибка загрузки вопросов: {e}")
-            self.questions = []
-    
-    def _build_categories(self):
-        for cat_id, data in QuestionCategory.CATEGORIES.items():
-            self.categories[cat_id] = Category(
-                id=cat_id,
-                name=data['name'],
-                emoji=data['emoji'],
-                description=data['description'],
-                marker=data['marker'],
-                questions=[]
-            )
-        for question in self.questions:
-            if question.category in self.categories:
-                self.categories[question.category].questions.append(question.id)
-            else:
-                if 'general' not in self.categories:
-                    self.categories['general'] = Category(
-                        id='general',
-                        name='Общие вопросы',
-                        emoji='📚',
-                        description='Вопросы без четкой категории',
-                        marker='',
-                        questions=[]
-                    )
-                self.categories['general'].questions.append(question.id)
-        logger.info("📊 Распределение вопросов по категориям:")
-        for cat_id, category in self.categories.items():
-            if category.count > 0:
-                logger.info(f"  {category.display_name}")
-    
-    def get_questions_by_category(self, category_id: str, limit: int = 20) -> List[Question]:
-        if category_id not in self.categories:
-            return []
-        question_ids = self.categories[category_id].questions
-        if not question_ids:
-            return []
-        selected_ids = random.sample(question_ids, min(limit, len(question_ids)))
-        return [q for q in self.questions if q.id in selected_ids]
-    
-    def get_all_questions(self, limit: int = 20) -> List[Question]:
-        if not self.questions:
-            return []
-        return random.sample(self.questions, min(limit, len(self.questions)))
-    def get_all_questions(self, limit: int = 20) -> List[Question]:
-        if not self.questions:
-            return []
-        return random.sample(self.questions, min(limit, len(self.questions)))
-    
-    def get_unseen_questions(self, category_id: str, seen_ids: List[int], limit: int = 20) -> List[Question]:
-        """Возвращает вопросы, которые пользователь ещё не видел"""
-        if category_id not in self.categories:
-            return []
-        
-        all_ids = self.categories[category_id].questions
-        unseen_ids = [q_id for q_id in all_ids if q_id not in seen_ids]
-        
-        # Если все вопросы уже просмотрены — сбрасываем историю и начинаем заново
-        if not unseen_ids:
-            return []
-        
-        selected_ids = random.sample(unseen_ids, min(limit, len(unseen_ids)))
-        return [q for q in self.questions if q.id in selected_ids]
-    
-    def get_questions_for_category(self, category_id: str, seen_ids: List[int], limit: int = 20, allow_repeat: bool = False) -> List[Question]:
-        """Получает вопросы для категории с учётом неповторяемости"""
-        if allow_repeat or category_id == "exam":
-            # Для экзамена или если разрешено повторение — берём случайные вопросы
-            return self.get_questions_by_category(category_id, limit)
-        
-        # Для обычных категорий — сначала непросмотренные
-        unseen = self.get_unseen_questions(category_id, seen_ids, limit)
-        if len(unseen) >= limit:
-            return unseen
-        
-        # Если непросмотренных меньше, чем нужно — добираем из просмотренных
-        all_ids = self.categories[category_id].questions if category_id in self.categories else []
-        remaining = limit - len(unseen)
-        available = [q_id for q_id in all_ids if q_id not in [q.id for q in unseen]]
-        if available:
-            extra = random.sample(available, min(remaining, len(available)))
-            return unseen + [q for q in self.questions if q.id in extra]
-        
-        return unseen
-    
-    def get_question_by_id(self, q_id: int) -> Optional[Question]:
-        for q in self.questions:
-            if q.id == q_id:
-                return q
-        return None
-
-# ==================== СОСТОЯНИЯ ====================
-class ExamStates(StatesGroup):
-    choosing_category = State()
-    choosing_count = State()
-    exam_in_progress = State()
 
 # ==================== ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ ====================
 user_sessions: Dict[int, UserSession] = {}
@@ -458,6 +109,10 @@ def get_user_session(user_id: int) -> UserSession:
         user_sessions[user_id] = UserSession(user_id=user_id)
     return user_sessions[user_id]
 
+def get_user_session(user_id: int) -> UserSession:
+    if user_id not in user_sessions:
+        user_sessions[user_id] = UserSession(user_id=user_id)
+    return user_sessions[user_id]
 # ==================== ИНИЦИАЛИЗАЦИЯ ====================
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
