@@ -580,6 +580,7 @@ async def select_category(callback: CallbackQuery, state: FSMContext):
 async def start_test(callback: CallbackQuery, state: FSMContext):
     logger.info(f"🔍 ЗАПУСК ТЕСТА: {callback.data}")
     category_id = callback.data.replace("start_test_", "")
+    logger.info(f"🔍 START_TEST: category_id = {category_id}")
     logger.info(f"🔍 CATEGORY ID: {category_id}")
     
     category = question_loader.categories.get(category_id)
