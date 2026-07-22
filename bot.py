@@ -823,7 +823,7 @@ async def deactivate_invite(callback: CallbackQuery):
         return
     code = callback.data.replace("deactivate_", "")
     if code not in guest_invite_manager.invites:
-        await callback.answer("❌ Инвайт не
+        await callback.answer("❌ Инвайт не найден", show_alert=True)
         await callback.answer("❌ Инвайт не найден", show_alert=True)
         return
     
