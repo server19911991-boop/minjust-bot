@@ -604,7 +604,11 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     logger.info(f"🔍 ПОЛНЫЙ CALLBACK: {callback.data}")
     parts = callback.data.split("_")
     count = int(parts[1])
-    category_id = parts[2] if len(parts) > 2 else "all"
+    # Берем ВСЕ части после count_ (начиная с индекса 2)
+    if len(parts) > 2:
+        category_id = "_".join(parts[2:])
+    else:
+        category_id = "all"
     logger.info(f"🔍 ВЫБОР КОЛИЧЕСТВА: count={count}, category={category_id}")
     
     # Преобразуем только если ID равен "civil" (для экзамена)
