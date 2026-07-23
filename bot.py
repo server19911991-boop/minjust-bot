@@ -657,6 +657,18 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     await callback.answer(f"🚀 Начинаем экзамен из {count} вопросов!")
 
 
+
+@dp.callback_query(F.data == "exam_choose_count")
+async def choose_count_for_exam(callback: CallbackQuery, state: FSMContext):
+    logger.info(f"🔍 ЭКЗАМЕН: вызов функции choose_count_for_exam")
+    logger.info(f"🔍 ЭКЗАМЕН: callback.data = {callback.data}")
+    await callback.message.edit_text(
+        "📝 **Выберите количество вопросов для экзамена:**",
+        reply_markup=get_count_choice_keyboard()
+    )
+    await state.set_state(ExamStates.choosing_count)
+    await callback.answer()
+
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
