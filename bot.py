@@ -1,6 +1,6 @@
 """
 ЮРИДИЧЕСКИЙ БОТ ДЛЯ ПОДГОТОВКИ К ЭКЗАМЕНУ МИНЮСТА
-Версия 3.0 - ПОЛНОСТЬЮ РАБОЧАЯ
+Версия 3.1 - С ДЕТАЛЬНОЙ СТАТИСТИКОЙ
 """
 
 import asyncio
@@ -119,10 +119,37 @@ class UserSession:
     question_count: int = 20
     seen_questions: List[int] = field(default_factory=list)
     all_questions_ids: List[int] = field(default_factory=list)
+    # Новая статистика по блокам
+    block_stats: Dict[str, dict] = field(default_factory=dict)
+    # Общая статистика
+    total_correct: int = 0
+    total_wrong: int = 0
+    total_questions_answered: int = 0
 
     def __post_init__(self):
         if not self.started_at:
             self.started_at = time.time()
+        # Инициализируем статистику для всех блоков
+        if not self.block_stats:
+            # Получаем категории из QuestionCategory
+            for cat_id in QuestionCategory.CATEGORIES.keys():
+                self.block_stats[cat_id] = {
+                    'total': 0,  # будет заполнено позже
+                    'answered': 0,
+                    'correct': 0,
+                    'wrong': 0,
+                    'seen': [],
+                    'completed': False
+                }
+            # Добавляем общую категорию
+            self.block_stats['general'] = {
+                'total': 0,
+                'answered': 0,
+                'correct': 0,
+                'wrong': 0,
+                'seen': [],
+                'completed': False
+            }
 
     @property
     def total_questions(self) -> int:
@@ -146,6 +173,37 @@ class UserSession:
             return 0
         correct = sum(1 for a in self.answers if a.get('is_correct', False))
         return (correct / len(self.answers)) * 100
+    
+    def update_block_stats(self, category_id: str, question_id: int, is_correct: bool):
+        """Обновляет статистику по блоку"""
+        if category_id not in self.block_stats:
+            self.block_stats[category_id] = {
+                'total': 0,
+                'answered': 0,
+                'correct': 0,
+                'wrong': 0,
+                'seen': [],
+                'completed': False
+            }
+        
+        stats = self.block_stats[category_id]
+        if question_id not in stats['seen']:
+            stats['seen'].append(question_id)
+            stats['answered'] += 1
+            if is_correct:
+                stats['correct'] += 1
+                self.total_correct += 1
+            else:
+                stats['wrong'] += 1
+                self.total_wrong += 1
+            self.total_questions_answered += 1
+        
+        # Проверяем, все ли вопросы пройдены
+        if category_id in question_loader.categories:
+            total_in_block = len(question_loader.categories[category_id].questions)
+            stats['total'] = total_in_block
+            if stats['answered'] >= total_in_block and total_in_block > 0:
+                stats['completed'] = True
 
 
 # ==================== УПРАВЛЕНИЕ ИНВАЙТАМИ ====================
@@ -362,6 +420,7 @@ class QuestionLoader:
 # ==================== ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ ====================
 user_sessions: Dict[int, UserSession] = {}
 guest_invite_manager = GuestInviteManager()
+question_loader = QuestionLoader()
 
 def get_user_session(user_id: int) -> UserSession:
     if user_id not in user_sessions:
@@ -373,7 +432,6 @@ def get_user_session(user_id: int) -> UserSession:
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
-question_loader = QuestionLoader()
 
 
 # ==================== КЛАВИАТУРЫ ====================
@@ -551,6 +609,72 @@ async def cmd_admin_panel(message: Message):
     )
 
 
+@dp.message(Command("guest_invite"))
+async def cmd_guest_invite(message: Message):
+    """Создает гостевую ссылку (только для администраторов)"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    
+    parts = message.text.split()
+    hours = int(parts[1]) if len(parts) > 1 else 24
+    
+    if hours < 1 or hours > 72:
+        await message.answer("❌ Укажите часы от 1 до 72")
+        return
+    
+    code = guest_invite_manager.create_invite(message.from_user.id, hours)
+    bot_username = (await bot.get_me()).username
+    invite_link = f"https://t.me/{bot_username}?start=guest_{code}"
+    
+    await message.answer(
+        f"🔑 **Гостевая ссылка создана!**\n\n"
+        f"📅 **Действует:** {hours} часов\n"
+        f"📎 **Ссылка:**\n`{invite_link}`\n\n"
+        f"📋 **Код:** `{code}`\n"
+        f"⏱️ Истекает: {datetime.fromtimestamp(guest_invite_manager.invites[code]['expires']).strftime('%d.%m.%Y %H:%M')}\n\n"
+        f"📤 Отправьте эту ссылку пользователю."
+    )
+
+
+@dp.message(Command("guest_list"))
+async def cmd_guest_list(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    if not guest_invite_manager.invites:
+        await message.answer("📭 Нет активных гостевых инвайтов")
+        return
+    text = "📋 **Активные гостевые инвайты:**\n\n"
+    for code, invite in guest_invite_manager.invites.items():
+        if not invite.get('active', True) or invite['expires'] < time.time():
+            continue
+        used = len(invite.get('used_by', []))
+        max_uses = invite.get('max_uses', 1)
+        hours = invite.get('hours', 24)
+        expires = datetime.fromtimestamp(invite['expires']).strftime('%d.%m.%Y %H:%M')
+        text += f"🔑 `{code}` - {hours}ч, до {expires} ({used}/{max_uses})\n"
+    await message.answer(text)
+
+
+@dp.message(Command("guest_deactivate"))
+async def cmd_guest_deactivate(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("❌ Использование: /guest_deactivate КОД")
+        return
+    code = parts[1]
+    if code not in guest_invite_manager.invites:
+        await message.answer("❌ Инвайт не найден")
+        return
+    guest_invite_manager.invites[code]['active'] = False
+    guest_invite_manager.save_invites()
+    await message.answer(f"✅ Инвайт `{code}` деактивирован")
+
+
 # ==================== CALLBACK ОБРАБОТЧИКИ ====================
 @dp.callback_query(F.data.startswith("category_"))
 async def select_category(callback: CallbackQuery, state: FSMContext):
@@ -657,7 +781,6 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     await callback.answer(f"🚀 Начинаем экзамен из {count} вопросов!")
 
 
-
 @dp.callback_query(F.data == "exam_choose_count")
 async def choose_count_for_exam(callback: CallbackQuery, state: FSMContext):
     logger.info(f"🔍 ЭКЗАМЕН: вызов функции choose_count_for_exam")
@@ -668,6 +791,7 @@ async def choose_count_for_exam(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(ExamStates.choosing_count)
     await callback.answer()
+
 
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
@@ -695,8 +819,26 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
 async def reset_progress(callback: CallbackQuery):
     user_id = callback.from_user.id
     session = get_user_session(user_id)
+    
+    # Сбрасываем только историю просмотров, но сохраняем статистику
     session.seen_questions = []
-    await callback.answer("🔄 История просмотров сброшена!", show_alert=True)
+    
+    # Сбрасываем статистику по блокам
+    for cat_id in session.block_stats:
+        session.block_stats[cat_id]['seen'] = []
+        session.block_stats[cat_id]['answered'] = 0
+        session.block_stats[cat_id]['correct'] = 0
+        session.block_stats[cat_id]['wrong'] = 0
+        session.block_stats[cat_id]['completed'] = False
+    
+    session.total_correct = 0
+    session.total_wrong = 0
+    session.total_questions_answered = 0
+    
+    await callback.answer("🔄 Прогресс сброшен! Можно начинать заново.", show_alert=True)
+    
+    # Показываем обновленную статистику
+    await show_stats(callback)
 
 
 @dp.callback_query(F.data == "help")
@@ -734,14 +876,64 @@ async def show_help(callback: CallbackQuery):
 async def show_stats(callback: CallbackQuery):
     user_id = callback.from_user.id
     session = get_user_session(user_id)
-    stats_text = f"📊 **Ваша статистика**\n\n"
+    
+    # Обновляем total для всех блоков
+    for cat_id in session.block_stats:
+        if cat_id in question_loader.categories:
+            session.block_stats[cat_id]['total'] = len(question_loader.categories[cat_id].questions)
+    
+    # Общая статистика
+    stats_text = "📊 **Ваша статистика**\n\n"
     stats_text += f"📚 Всего тестов: {session.total_attempts}\n"
-    if session.answers:
-        total = len(session.answers)
-        correct = sum(1 for a in session.answers if a.get('is_correct', False))
-        stats_text += f"✅ Правильных ответов: {correct} из {total}\n"
-        stats_text += f"🎯 Точность: {(correct/total*100):.1f}%\n"
-    await callback.message.answer(stats_text)
+    
+    if session.total_questions_answered > 0:
+        total = session.total_questions_answered
+        correct = session.total_correct
+        percent = (correct / total) * 100
+        stats_text += f"✅ Всего отвечено: {total} вопросов\n"
+        stats_text += f"🎯 Точность: {percent:.1f}%\n"
+        stats_text += f"📈 Правильных: {correct}, Неправильных: {session.total_wrong}\n\n"
+    
+    # Статистика по блокам
+    stats_text += "📚 **Прогресс по блокам:**\n\n"
+    
+    # Сортируем блоки по прогрессу
+    sorted_blocks = []
+    for cat_id, stats in session.block_stats.items():
+        if stats['total'] == 0 or cat_id == 'general':
+            continue
+        cat = question_loader.categories.get(cat_id)
+        if not cat:
+            continue
+        progress = (stats['answered'] / stats['total']) * 100 if stats['total'] > 0 else 0
+        sorted_blocks.append((progress, cat_id, stats, cat))
+    
+    sorted_blocks.sort(key=lambda x: x[0], reverse=True)
+    
+    for progress, cat_id, stats, cat in sorted_blocks:
+        status = "✅" if stats['completed'] else "🔄"
+        
+        stats_text += f"{status} **{cat.emoji} {cat.name}**\n"
+        stats_text += f"   📊 {stats['answered']}/{stats['total']} ({progress:.1f}%)\n"
+        stats_text += f"   ✅ Правильно: {stats['correct']}, ❌ Неправильно: {stats['wrong']}\n"
+        
+        if stats['completed']:
+            stats_text += f"   🎉 Блок полностью пройден!\n"
+        else:
+            remaining = stats['total'] - stats['answered']
+            stats_text += f"   📝 Осталось: {remaining} вопросов\n"
+        stats_text += "\n"
+    
+    if not sorted_blocks:
+        stats_text += "Нет данных по блокам. Пройдите хотя бы один тест!\n"
+    
+    # Кнопки
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Сбросить прогресс", callback_data="reset_progress")],
+        [InlineKeyboardButton(text="« В меню", callback_data="back_to_main")]
+    ])
+    
+    await callback.message.edit_text(stats_text, reply_markup=keyboard)
     await callback.answer()
 
 
@@ -851,7 +1043,6 @@ async def deactivate_invite(callback: CallbackQuery):
     code = callback.data.replace("deactivate_", "")
     if code not in guest_invite_manager.invites:
         await callback.answer("❌ Инвайт не найден", show_alert=True)
-        await callback.answer("❌ Инвайт не найден", show_alert=True)
         return
     
     guest_invite_manager.invites[code]['active'] = False
@@ -889,66 +1080,6 @@ async def review_mistakes(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await send_question(callback.message, user_id, state)
     await callback.answer(f"📝 Повторяем {len(mistake_questions)} ошибок")
-
-
-@dp.message(Command("guest_invite"))
-async def cmd_guest_invite(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
-    parts = message.text.split()
-    hours = int(parts[1]) if len(parts) > 1 else 24
-    if hours < 1 or hours > 72:
-        await message.answer("❌ Укажите часы от 1 до 72")
-        return
-    code = guest_invite_manager.create_invite(message.from_user.id, hours)
-    bot_username = (await bot.get_me()).username
-    invite_link = f"https://t.me/{bot_username}?start=guest_{code}"
-    await message.answer(
-        f"🔑 **Гостевая ссылка создана!**\n\n"
-        f"📅 **Действует:** {hours} часов\n"
-        f"📎 **Ссылка:**\n`{invite_link}`\n\n"
-        f"📋 **Код:** `{code}`\n"
-        f"⏱️ Истекает: {datetime.fromtimestamp(guest_invite_manager.invites[code]['expires']).strftime('%d.%m.%Y %H:%M')}"
-    )
-
-
-@dp.message(Command("guest_list"))
-async def cmd_guest_list(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
-    if not guest_invite_manager.invites:
-        await message.answer("📭 Нет активных гостевых инвайтов")
-        return
-    text = "📋 **Активные гостевые инвайты:**\n\n"
-    for code, invite in guest_invite_manager.invites.items():
-        if not invite.get('active', True) or invite['expires'] < time.time():
-            continue
-        used = len(invite.get('used_by', []))
-        max_uses = invite.get('max_uses', 1)
-        hours = invite.get('hours', 24)
-        expires = datetime.fromtimestamp(invite['expires']).strftime('%d.%m.%Y %H:%M')
-        text += f"🔑 `{code}` - {hours}ч, до {expires} ({used}/{max_uses})\n"
-    await message.answer(text)
-
-
-@dp.message(Command("guest_deactivate"))
-async def cmd_guest_deactivate(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
-    parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer("❌ Использование: /guest_deactivate КОД")
-        return
-    code = parts[1]
-    if code not in guest_invite_manager.invites:
-        await message.answer("❌ Инвайт не найден")
-        return
-    guest_invite_manager.invites[code]['active'] = False
-    guest_invite_manager.save_invites()
-    await message.answer(f"✅ Инвайт `{code}` деактивирован")
 
 
 # ==================== ОТПРАВКА ВОПРОСА ====================
@@ -1054,12 +1185,18 @@ async def process_answer(message: Message, state: FSMContext):
     if question.article:
         response += f"📚 Источник: {question.article}"
     await message.answer(response)
+    
     session.answers.append({
         'question': question.question,
         'selected': list(selected),
         'correct': question.correct_options,
         'is_correct': is_correct
     })
+    
+    # Обновляем статистику по блоку
+    if session.category_id != "exam" and session.category_id != "mistakes" and session.category_id != "all":
+        session.update_block_stats(session.category_id, question.id, is_correct)
+    
     session.current_index += 1
     await send_question(message, user_id, state)
 
