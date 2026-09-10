@@ -1376,23 +1376,62 @@ async def grant_help(callback: CallbackQuery):
 
 @dp.message(Command("grant"))
 async def cmd_grant(message: Message):
+    """Выдать доступ пользователю и создать ссылку для него"""
     if message.from_user.id not in ADMIN_IDS:
         return
     parts = message.text.split()
     if len(parts) < 3:
-        await message.answer("Использование: /grant user_id days")
+        await message.answer(
+            "❌ *Использование:*\n"
+            "`/grant <user_id> <days>`\n\n"
+            "*Примеры:*\n"
+            "`/grant 356468858 30` — на 30 дней\n"
+            "`/grant 356468858 90` — на 3 месяца\n"
+            "`/grant 356468858 10` — на 10 дней",
+            parse_mode="Markdown"
+        )
         return
     try:
         target_id = int(parts[1])
         days = int(parts[2])
-        access_manager.grant_access(target_id, days, message.from_user.id)
-        until = access_manager.format_access_until(target_id)
-        await message.answer(
-            "✅ Доступ выдан пользователю " + str(target_id) + " на " + str(days) + " дней.\n"
-            "Действует до: " + until
-        )
     except ValueError:
-        await message.answer("Ошибка. Используйте: /grant 123456789 30")
+        await message.answer("❌ Неверный формат. Используйте: `/grant 356468858 30`", parse_mode="Markdown")
+        return
+
+    # 1. Выдаём доступ
+    access_manager.grant_access(target_id, days, message.from_user.id)
+    until = access_manager.format_access_until(target_id)
+
+    # 2. Создаём ссылку-приглашение для этого же срока (для персональной отправки)
+    code = access_manager.create_invite(message.from_user.id, duration_days=days, max_uses=1)
+    bot_username = (await bot.get_me()).username
+    link = "https://t.me/" + bot_username + "?start=invite_" + code
+
+    # 3. Формируем итоговое сообщение
+    if days == 10:
+        duration_text = "10 дней"
+    elif days == 30:
+        duration_text = "1 месяц (30 дней)"
+    elif days == 90:
+        duration_text = "3 месяца (90 дней)"
+    else:
+        duration_text = str(days) + " дней"
+
+    text = (
+        "✅ *Доступ выдан!*\n\n"
+        "🆔 *Пользователь:* `" + str(target_id) + "`\n"
+        "⏱ *Срок:* " + duration_text + "\n"
+        "📅 *Действует до:* " + until + "\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "📎 *Ссылка для пользователя:*\n"
+        "`" + link + "`\n\n"
+        "📤 Отправьте эту ссылку пользователю.\n"
+        "Он должен *нажать* на неё (не копировать!) → затем START.\n\n"
+        "После этого у него автоматически откроется доступ.\n"
+        "Если ссылка не сработает — попросите его написать `/start`, доступ уже активен."
+    )
+
+    await message.answer(text, parse_mode="Markdown")
 
 
 @dp.message(Command("revoke"))
