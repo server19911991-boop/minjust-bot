@@ -32,7 +32,12 @@ from access_manager import AccessManager
 # ==================== КОНФИГУРАЦИЯ ====================
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = [551931619]  # Ваш ID
+_admin_env = os.getenv("ADMIN_IDS", "")
+if _admin_env:
+    _admin_env = _admin_env.strip().strip("[]").strip()
+    ADMIN_IDS = [int(x.strip()) for x in _admin_env.split(",") if x.strip().isdigit()]
+else:
+    ADMIN_IDS = [551931619]
 
 logging.basicConfig(
     level=logging.INFO,
