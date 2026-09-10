@@ -27,6 +27,7 @@ from aiogram.types import (
     InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 )
 from dotenv import load_dotenv
+from access_manager import AccessManager
 
 # ==================== КОНФИГУРАЦИЯ ====================
 load_dotenv()
@@ -421,6 +422,7 @@ class QuestionLoader:
 user_sessions: Dict[int, UserSession] = {}
 guest_invite_manager = GuestInviteManager()
 question_loader = QuestionLoader()
+access_manager = AccessManager()
 
 def get_user_session(user_id: int) -> UserSession:
     if user_id not in user_sessions:
@@ -557,17 +559,54 @@ def get_grade_text(percent: float) -> str:
 @dp.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
+    username = message.from_user.username or ""
+    first_name = message.from_user.first_name or ""
+
+    # Обработка инвайта: /start invite_XXXX
+    text = message.text or ""
+    if "invite_" in text:
+        parts = text.split("invite_", 1)
+        if len(parts) > 1:
+            code = parts[1].strip().split()[0]
+            if access_manager.use_invite(code, user_id, username, first_name):
+                await message.answer(
+                    "✅ *Доступ активирован!*\n\n"
+                    "Ваш доступ к боту открыт на указанный срок. Приятной подготовки! 🚀"
+                )
+            else:
+                await message.answer(
+                    "❌ *Ошибка активации*\n\n"
+                    "Ссылка недействительна, уже использована или срок истёк."
+                )
+
+    # Проверка доступа (админ всегда имеет доступ)
+    if user_id not in ADMIN_IDS and not access_manager.has_access(user_id):
+        await message.answer(
+            "🔒 *Доступ к боту закрыт*\n\n"
+            "Для получения доступа обратитесь к администратору.\n\n"
+            "Если у вас есть ссылка-приглашение — перейдите по ней ещё раз."
+        )
+        return
+
     await state.clear()
     if user_id in user_sessions:
         session = user_sessions[user_id]
         session.is_finished = True
         session.questions = []
         session.current_index = 0
+
+    # Показываем оставшиеся дни (для не-админов)
+    access_info = ""
+    if user_id not in ADMIN_IDS:
+        days_left = access_manager.get_access_remaining_days(user_id)
+        until = access_manager.format_access_until(user_id)
+        access_info = "\n\n⏱️ *Доступ до:* " + until + " (" + str(days_left) + " дн.)"
+
     welcome_text = (
-        f"👋 **Добро пожаловать в бот для подготовки к экзамену Минюста!**\n\n"
-        f"📚 **Всего вопросов в базе:** {len(question_loader.questions)}\n"
-        f"📊 **Количество тем:** {len([c for c in question_loader.categories.values() if c.count > 0 and c.id != 'general'])}\n\n"
-        f"Выберите тему для подготовки или начните экзамен:"
+        "👋 *Добро пожаловать в бот для подготовки к экзамену Минюста!*\n\n"
+        "📚 *Всего вопросов в базе:* " + str(len(question_loader.questions)) + "\n"
+        "📊 *Количество тем:* " + str(len([c for c in question_loader.categories.values() if c.count > 0 and c.id != 'general'])) + "\n\n"
+        "Выберите тему для подготовки:" + access_info
     )
     await message.answer(welcome_text, reply_markup=get_main_menu_keyboard(user_id))
     await state.set_state(ExamStates.choosing_category)
@@ -592,15 +631,19 @@ async def cmd_admin_panel(message: Message):
         return
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🔑 Создать инвайт (24ч)", callback_data="invite_24"),
-            InlineKeyboardButton(text="🔑 Создать инвайт (48ч)", callback_data="invite_48")
+            InlineKeyboardButton(text="🔑 Инвайт 10 дней", callback_data="invite_10"),
+            InlineKeyboardButton(text="🔑 Инвайт 1 месяц", callback_data="invite_30")
         ],
         [
-            InlineKeyboardButton(text="🔑 Создать инвайт (72ч)", callback_data="invite_72"),
+            InlineKeyboardButton(text="🔑 Инвайт 3 месяца", callback_data="invite_90"),
             InlineKeyboardButton(text="📋 Активные инвайты", callback_data="list_invites")
         ],
         [
-            InlineKeyboardButton(text="📊 Статистика бота", callback_data="bot_stats")
+            InlineKeyboardButton(text="👥 Пользователи", callback_data="list_users"),
+            InlineKeyboardButton(text="📊 Статистика", callback_data="bot_stats")
+        ],
+        [
+            InlineKeyboardButton(text="➕ Выдать доступ (команды)", callback_data="grant_help")
         ]
     ])
     await message.answer(
@@ -947,29 +990,35 @@ async def admin_panel_callback(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data.startswith("invite_"))
-async def create_invite_from_panel(callback: CallbackQuery):
+@dp.callback_query(F.data.startswith("invite_"))
+@dp.callback_query(F.data.startswith("invite_"))
+async def create_invite(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ Нет прав", show_alert=True)
+        await callback.answer("Нет прав", show_alert=True)
         return
-    hours = int(callback.data.replace("invite_", ""))
-    code = guest_invite_manager.create_invite(callback.from_user.id, hours)
+    days = int(callback.data.replace("invite_", ""))
+    code = access_manager.create_invite(callback.from_user.id, duration_days=days)
     bot_username = (await bot.get_me()).username
-    invite_link = f"https://t.me/{bot_username}?start=guest_{code}"
-    expires = datetime.fromtimestamp(guest_invite_manager.invites[code]['expires']).strftime('%d.%m.%Y %H:%M')
+    link = "https://t.me/" + bot_username + "?start=invite_" + code
+    if days == 10:
+        duration_text = "10 дней"
+    elif days == 30:
+        duration_text = "1 месяц (30 дней)"
+    elif days == 90:
+        duration_text = "3 месяца (90 дней)"
+    else:
+        duration_text = str(days) + " дней"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Активные инвайты", callback_data="list_invites")],
-        [InlineKeyboardButton(text="🔙 Назад в админку", callback_data="back_to_admin")]
+        [InlineKeyboardButton(text="Активные инвайты", callback_data="list_invites")],
+        [InlineKeyboardButton(text="Назад", callback_data="back_to_admin")]
     ])
-    await callback.message.edit_text(
-        f"✅ **Гостевая ссылка создана!**\n\n"
-        f"🔑 **Код:** `{code}`\n"
-        f"⏱️ **Действует:** {hours} часов\n"
-        f"⏰ **Истекает:** {expires}\n\n"
-        f"📎 **Ссылка:**\n`{invite_link}`",
-        reply_markup=keyboard
-    )
-    await callback.answer(f"✅ Инвайт на {hours} часов создан!")
-
+    msg = "✅ Ссылка-приглашение создана!\n\n"
+    msg += "Код: " + code + "\n"
+    msg += "Длительность: " + duration_text + "\n\n"
+    msg += "Ссылка:\n`" + link + "`\n\n"
+    msg += "Отправьте её пользователю."
+    await callback.message.edit_text(msg, reply_markup=keyboard)
+    await callback.answer("Ссылка создана!")
 
 @dp.callback_query(F.data == "list_invites")
 async def list_active_invites(callback: CallbackQuery):
@@ -1202,6 +1251,133 @@ async def process_answer(message: Message, state: FSMContext):
 
 
 # ==================== ЗАПУСК ====================
+@dp.callback_query(F.data == "list_users")
+async def list_users(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет прав", show_alert=True)
+        return
+    users = access_manager.get_all_users()
+    now = time.time()
+    if not users:
+        await callback.message.edit_text(
+            "👥 Пользователей пока нет.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Назад", callback_data="back_to_admin")]
+            ])
+        )
+        return
+    active = [(uid, u) for uid, u in users.items() if u.get("access_until", 0) > now]
+    expired = [(uid, u) for uid, u in users.items() if u.get("access_until", 0) <= now]
+    text = "👥 Пользователи\n\n"
+    text += "✅ Активных: " + str(len(active)) + "\n\n"
+    for uid, u in active[:20]:
+        name = u.get("first_name") or u.get("username") or uid
+        until = datetime.fromtimestamp(u["access_until"]).strftime("%d.%m.%Y")
+        text += "• " + str(name) + " (" + str(uid) + ") до " + until + "\n"
+    if len(active) > 20:
+        text += "... и ещё " + str(len(active) - 20) + "\n"
+    text += "\n❌ Истёкших: " + str(len(expired))
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Назад", callback_data="back_to_admin")]
+        ])
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "grant_help")
+async def grant_help(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет прав", show_alert=True)
+        return
+    text = "➕ Выдача доступа вручную\n\n"
+    text += "Используйте команды:\n\n"
+    text += "/grant user_id days — выдать доступ на N дней\n"
+    text += "/revoke user_id — отозвать доступ\n"
+    text += "/users — список всех пользователей\n\n"
+    text += "Примеры:\n"
+    text += "/grant 123456789 30 — на 30 дней\n"
+    text += "/grant 123456789 90 — на 3 месяца\n"
+    text += "/revoke 123456789 — отозвать"
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Назад", callback_data="back_to_admin")]
+        ])
+    )
+    await callback.answer()
+
+
+@dp.message(Command("grant"))
+async def cmd_grant(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split()
+    if len(parts) < 3:
+        await message.answer("Использование: /grant user_id days")
+        return
+    try:
+        target_id = int(parts[1])
+        days = int(parts[2])
+        access_manager.grant_access(target_id, days, message.from_user.id)
+        until = access_manager.format_access_until(target_id)
+        await message.answer(
+            "✅ Доступ выдан пользователю " + str(target_id) + " на " + str(days) + " дней.\n"
+            "Действует до: " + until
+        )
+    except ValueError:
+        await message.answer("Ошибка. Используйте: /grant 123456789 30")
+
+
+@dp.message(Command("revoke"))
+async def cmd_revoke(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Использование: /revoke user_id")
+        return
+    try:
+        target_id = int(parts[1])
+        if access_manager.revoke_access(target_id):
+            await message.answer("✅ Доступ пользователя " + str(target_id) + " отозван.")
+        else:
+            await message.answer("❌ Пользователь не найден.")
+    except ValueError:
+        await message.answer("Ошибка. Используйте: /revoke 123456789")
+
+
+@dp.message(Command("users"))
+async def cmd_users(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    users = access_manager.get_all_users()
+    if not users:
+        await message.answer("👥 Пользователей пока нет.")
+        return
+    now = time.time()
+    active = [(uid, u) for uid, u in users.items() if u.get("access_until", 0) > now]
+    expired = [(uid, u) for uid, u in users.items() if u.get("access_until", 0) <= now]
+    text = "👥 Пользователи\n\n"
+    text += "✅ Активных: " + str(len(active)) + "\n"
+    for uid, u in active[:30]:
+        name = u.get("first_name") or u.get("username") or uid
+        until = datetime.fromtimestamp(u["access_until"]).strftime("%d.%m.%Y")
+        text += "• " + str(name) + " (" + str(uid) + ") до " + until + "\n"
+    text += "\n❌ Истёкших: " + str(len(expired))
+    await message.answer(text)
+
+
+@dp.callback_query(F.data == "back_to_admin")
+async def back_to_admin(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Нет прав", show_alert=True)
+        return
+    await cmd_admin_panel(callback.message)
+    await callback.answer()
+
+
 async def main():
     print("=" * 60)
     print("🚀 ЮРИДИЧЕСКИЙ БОТ ЗАПУЩЕН")
