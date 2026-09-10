@@ -996,8 +996,6 @@ async def admin_panel_callback(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data.startswith("invite_"))
-@dp.callback_query(F.data.startswith("invite_"))
-@dp.callback_query(F.data.startswith("invite_"))
 async def create_invite(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("Нет прав", show_alert=True)
@@ -1375,13 +1373,6 @@ async def cmd_users(message: Message):
     await message.answer(text)
 
 
-@dp.callback_query(F.data == "back_to_admin")
-async def back_to_admin(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("Нет прав", show_alert=True)
-        return
-    await cmd_admin_panel(callback.message)
-    await callback.answer()
 
 
 async def main():
