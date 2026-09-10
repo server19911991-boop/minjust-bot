@@ -483,7 +483,7 @@ def get_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
 
     if user_id and user_id in ADMIN_IDS:
         buttons.append([
-            InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")
+            InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel_menu")
         ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -982,6 +982,16 @@ async def show_stats(callback: CallbackQuery):
     ])
     
     await callback.message.edit_text(stats_text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "admin_panel_menu")
+async def admin_panel_menu_callback(callback: CallbackQuery):
+    logger.info("=== ADMIN_PANEL_MENU === user_id=" + str(callback.from_user.id))
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("Ваш ID " + str(callback.from_user.id) + " не в списке админов", show_alert=True)
+        return
+    await cmd_admin_panel(callback.message)
     await callback.answer()
 
 
