@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -562,27 +562,40 @@ def get_grade_text(percent: float) -> str:
 
 # ==================== ОБРАБОТЧИКИ КОМАНД ====================
 @dp.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext):
+async def cmd_start(message: Message, state: FSMContext, command: CommandObject = None):
     user_id = message.from_user.id
     username = message.from_user.username or ""
     first_name = message.from_user.first_name or ""
 
-    # Обработка инвайта: /start invite_XXXX
-    text = message.text or ""
-    if "invite_" in text:
-        parts = text.split("invite_", 1)
+    # Получаем аргумент команды (то, что после /start)
+    logger.info("CMD_START: user_id=" + str(user_id) + " text=" + repr(message.text) + " args=" + repr(command.args if command else None))
+
+    # Telegram может передать параметр двумя способами:
+    # 1) message.text = "/start invite_XXXX"
+    # 2) command.args = "invite_XXXX"
+    invite_code = None
+    if command and command.args:
+        invite_code = command.args.strip()
+    elif "invite_" in (message.text or ""):
+        parts = message.text.split("invite_", 1)
         if len(parts) > 1:
-            code = parts[1].strip().split()[0]
-            if access_manager.use_invite(code, user_id, username, first_name):
-                await message.answer(
-                    "✅ *Доступ активирован!*\n\n"
-                    "Ваш доступ к боту открыт на указанный срок. Приятной подготовки! 🚀"
-                )
-            else:
-                await message.answer(
-                    "❌ *Ошибка активации*\n\n"
-                    "Ссылка недействительна, уже использована или срок истёк."
-                )
+            invite_code = "invite_" + parts[1].strip().split()[0]
+
+    logger.info("CMD_START invite_code=" + repr(invite_code))
+
+    if invite_code and invite_code.startswith("invite_"):
+        code = invite_code.replace("invite_", "")
+        logger.info("CMD_START trying use_invite code=" + code)
+        if access_manager.use_invite(code, user_id, username, first_name):
+            await message.answer(
+                "✅ *Доступ активирован!*\n\n"
+                "Ваш доступ к боту открыт на указанный срок. Приятной подготовки! 🚀"
+            )
+        else:
+            await message.answer(
+                "❌ *Ошибка активации*\n\n"
+                "Ссылка недействительна, уже использована или срок истёк."
+            )
 
     # Проверка доступа (админ всегда имеет доступ)
     if user_id not in ADMIN_IDS and not access_manager.has_access(user_id):
