@@ -1000,11 +1000,49 @@ async def show_stats(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "admin_panel_menu")
 async def admin_panel_menu_callback(callback: CallbackQuery):
-    logger.info("=== ADMIN_PANEL_MENU === user_id=" + str(callback.from_user.id))
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("Ваш ID " + str(callback.from_user.id) + " не в списке админов", show_alert=True)
+    user_id = callback.from_user.id
+    logger.info("=== ADMIN_PANEL_MENU === user_id=" + str(user_id))
+
+    if user_id not in ADMIN_IDS:
+        await callback.answer("Ваш ID " + str(user_id) + " не в списке админов", show_alert=True)
         return
-    await cmd_admin_panel(callback.message)
+
+    # Формируем текст и клавиатуру прямо здесь — без вызова cmd_admin_panel
+    admin_text = (
+        "👑 Админ-панель\n\n"
+        "Управление доступом и статистика:"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔑 Инвайт 10 дней", callback_data="invite_10"),
+            InlineKeyboardButton(text="🔑 Инвайт 1 месяц", callback_data="invite_30")
+        ],
+        [
+            InlineKeyboardButton(text="🔑 Инвайт 3 месяца", callback_data="invite_90"),
+            InlineKeyboardButton(text="📋 Активные инвайты", callback_data="list_invites")
+        ],
+        [
+            InlineKeyboardButton(text="👥 Пользователи", callback_data="list_users"),
+            InlineKeyboardButton(text="📊 Статистика", callback_data="bot_stats")
+        ],
+        [
+            InlineKeyboardButton(text="➕ Выдать доступ (команды)", callback_data="grant_help")
+        ]
+    ])
+
+    try:
+        await callback.message.edit_text(admin_text, reply_markup=keyboard)
+        logger.info("=== ADMIN_PANEL_MENU sent edit_text OK ===")
+    except Exception as e:
+        logger.error("=== ADMIN_PANEL_MENU edit failed: " + str(e) + " ===")
+        # Если редактирование не удалось — отправим новое сообщение
+        try:
+            await callback.message.answer(admin_text, reply_markup=keyboard)
+            logger.info("=== ADMIN_PANEL_MENU sent answer OK ===")
+        except Exception as e2:
+            logger.error("=== ADMIN_PANEL_MENU answer failed: " + str(e2) + " ===")
+
     await callback.answer()
 
 
