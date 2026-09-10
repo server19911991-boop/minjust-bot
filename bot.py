@@ -987,8 +987,9 @@ async def show_stats(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "admin_panel")
 async def admin_panel_callback(callback: CallbackQuery):
+    logger.info("=== CALLBACK admin_panel === user_id=" + str(callback.from_user.id) + " ADMIN_IDS=" + str(ADMIN_IDS))
     if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ Нет прав", show_alert=True)
+        await callback.answer("DEBUG: ADMIN_IDS=" + str(ADMIN_IDS) + ", ваш ID=" + str(callback.from_user.id), show_alert=True)
         return
     await cmd_admin_panel(callback.message)
     await callback.answer()
