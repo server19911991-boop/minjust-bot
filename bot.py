@@ -32,12 +32,16 @@ from access_manager import AccessManager
 # ==================== КОНФИГУРАЦИЯ ====================
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-_admin_env = os.getenv("ADMIN_IDS", "")
-if _admin_env:
-    _admin_env = _admin_env.strip().strip("[]").strip()
-    ADMIN_IDS = [int(x.strip()) for x in _admin_env.split(",") if x.strip().isdigit()]
-else:
-    ADMIN_IDS = [551931619]
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN не задан в переменных окружения. Проверьте .env или Railway Variables.")
+
+_admin_env = os.getenv("ADMIN_IDS", "").strip().strip("[]")
+if not _admin_env:
+    raise RuntimeError("ADMIN_IDS не заданы. Добавьте в .env строку ADMIN_IDS=[ваш_id]")
+
+ADMIN_IDS = [int(x.strip()) for x in _admin_env.split(",") if x.strip().isdigit()]
+if not ADMIN_IDS:
+    raise RuntimeError("ADMIN_IDS не распарсились — проверьте формат: ADMIN_IDS=[123456789]")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -439,6 +443,24 @@ def get_user_session(user_id: int) -> UserSession:
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+
+
+# ==================== ДЕКОРАТОРЫ ====================
+from functools import wraps
+
+def require_admin(handler):
+    """Декоратор: пропускает только админов. Работает и для Message, и для CallbackQuery."""
+    @wraps(handler)
+    async def wrapper(event, *args, **kwargs):
+        user_id = event.from_user.id
+        if user_id not in ADMIN_IDS:
+            if isinstance(event, CallbackQuery):
+                await event.answer("⛔ У вас нет прав", show_alert=True)
+            else:
+                await event.answer("⛔ У вас нет прав для этой команды")
+            return
+        return await handler(event, *args, **kwargs)
+    return wrapper
 
 
 # ==================== КЛАВИАТУРЫ ====================
@@ -1473,6 +1495,26 @@ async def cmd_users(message: Message):
     await message.answer(text)
 
 
+
+
+# ==================== ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК ====================
+@dp.error()
+async def global_error_handler(event: types.ErrorEvent):
+    """Ловит любые исключения в хендлерах и сообщает пользователю."""
+    logger.exception("Необработанная ошибка: %s", event.exception)
+
+    update = event.update
+    try:
+        if update.message:
+            await update.message.answer(
+                "⚠️ Произошла ошибка при обработке. Попробуйте ещё раз или напишите /start."
+            )
+        elif update.callback_query:
+            await update.callback_query.answer(
+                "⚠️ Произошла ошибка. Попробуйте ещё раз.", show_alert=True
+            )
+    except Exception:
+        logger.exception("Не удалось отправить сообщение об ошибке пользователю")
 
 
 async def main():
