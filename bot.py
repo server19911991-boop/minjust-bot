@@ -429,6 +429,88 @@ class QuestionLoader:
 
 # ==================== ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ ====================
 user_sessions: Dict[int, UserSession] = {}
+
+
+import json as _json
+DATA_DIR = os.getenv("DATA_DIR") or ("/app/data" if os.path.isdir("/app/data") else "./data")
+SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
+os.makedirs(SESSIONS_DIR, exist_ok=True)
+
+
+def _session_to_dict(session):
+    return {
+        "user_id": session.user_id,
+        "current_index": session.current_index,
+        "score": session.score,
+        "category_id": session.category_id,
+        "started_at": session.started_at,
+        "is_finished": session.is_finished,
+        "total_attempts": session.total_attempts,
+        "question_count": session.question_count,
+        "seen_questions": session.seen_questions,
+        "question_ids": [q.id for q in session.questions],
+        "answers": session.answers,
+        "block_stats": session.block_stats,
+        "total_correct": session.total_correct,
+        "total_wrong": session.total_wrong,
+        "total_questions_answered": session.total_questions_answered,
+    }
+
+
+def _dict_to_session(data):
+    session = UserSession(user_id=data["user_id"])
+    session.current_index = data.get("current_index", 0)
+    session.score = data.get("score", 0)
+    session.category_id = data.get("category_id", "")
+    session.started_at = data.get("started_at", time.time())
+    session.is_finished = data.get("is_finished", False)
+    session.total_attempts = data.get("total_attempts", 0)
+    session.question_count = data.get("question_count", 20)
+    session.seen_questions = data.get("seen_questions", [])
+    session.answers = data.get("answers", [])
+    session.block_stats = data.get("block_stats", {})
+    session.total_correct = data.get("total_correct", 0)
+    session.total_wrong = data.get("total_wrong", 0)
+    session.total_questions_answered = data.get("total_questions_answered", 0)
+    q_ids = data.get("question_ids", [])
+    if q_ids:
+        all_q = {q.id: q for q in question_loader.questions}
+        session.questions = [all_q[qid] for qid in q_ids if qid in all_q]
+    return session
+
+
+def save_session(session):
+    try:
+        path = os.path.join(SESSIONS_DIR, str(session.user_id) + ".json")
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump(_session_to_dict(session), f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning("save_session failed: %s", e)
+
+
+def load_all_sessions():
+    if not os.path.isdir(SESSIONS_DIR):
+        return
+    now = time.time()
+    loaded = 0
+    for fname in os.listdir(SESSIONS_DIR):
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(SESSIONS_DIR, fname)
+        try:
+            if now - os.path.getmtime(path) > 24 * 3600:
+                os.remove(path)
+                continue
+            with open(path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+            session = _dict_to_session(data)
+            user_sessions[session.user_id] = session
+            loaded += 1
+        except Exception as e:
+            logger.warning("load session failed: %s", e)
+    if loaded:
+        logger.info("Loaded sessions: %d", loaded)
+
 guest_invite_manager = GuestInviteManager()
 question_loader = QuestionLoader()
 access_manager = AccessManager()
@@ -632,6 +714,7 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject 
     if user_id in user_sessions:
         session = user_sessions[user_id]
         session.is_finished = True
+        save_session(session)
         session.questions = []
         session.current_index = 0
 
@@ -848,6 +931,7 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     session.is_finished = False
     session.total_attempts += 1
     session.question_count = count
+    save_session(session)
     
     await state.set_state(ExamStates.exam_in_progress)
     await callback.message.delete()
@@ -873,6 +957,7 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
     if user_id in user_sessions:
         session = user_sessions[user_id]
         session.is_finished = True
+        save_session(session)
     await state.set_state(ExamStates.choosing_category)
     try:
         await callback.message.edit_text(
@@ -1228,6 +1313,7 @@ async def send_question(message: Message, user_id: int, state: FSMContext):
 async def finish_exam(message: Message, user_id: int, state: FSMContext):
     session = get_user_session(user_id)
     session.is_finished = True
+    save_session(session)
     total = len(session.questions)
     score = session.score
     percent = (score / total) * 100 if total > 0 else 0
@@ -1311,6 +1397,7 @@ async def process_answer(message: Message, state: FSMContext):
         session.update_block_stats(session.category_id, question.id, is_correct)
     
     session.current_index += 1
+    save_session(session)
     await send_question(message, user_id, state)
 
 
@@ -1501,6 +1588,7 @@ async def main():
     print("=" * 60)
     print("✅ Бот готов к работе!")
     print("=" * 60)
+    load_all_sessions()
     logger.info("🚀 Запускаем polling...")
     try:
         await dp.start_polling(bot)
