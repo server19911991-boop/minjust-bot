@@ -665,6 +665,7 @@ async def cmd_exam(message: Message, state: FSMContext):
 
 
 @dp.message(Command("admin_panel"))
+@require_admin
 async def cmd_admin_panel(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("❌ У вас нет прав для этой команды")
@@ -693,8 +694,8 @@ async def cmd_admin_panel(message: Message):
 
 
 @dp.message(Command("guest_invite"))
+@require_admin
 async def cmd_guest_invite(message: Message):
-    """Создает гостевую ссылку (только для администраторов)"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("❌ У вас нет прав для этой команды")
         return
@@ -721,6 +722,7 @@ async def cmd_guest_invite(message: Message):
 
 
 @dp.message(Command("guest_list"))
+@require_admin
 async def cmd_guest_list(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("❌ У вас нет прав для этой команды")
@@ -741,6 +743,7 @@ async def cmd_guest_list(message: Message):
 
 
 @dp.message(Command("guest_deactivate"))
+@require_admin
 async def cmd_guest_deactivate(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("❌ У вас нет прав для этой команды")
@@ -1021,6 +1024,7 @@ async def show_stats(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "admin_panel_menu")
+@require_admin
 async def admin_panel_menu_callback(callback: CallbackQuery):
     user_id = callback.from_user.id
     logger.info("=== ADMIN_PANEL_MENU === user_id=" + str(user_id))
@@ -1069,6 +1073,7 @@ async def admin_panel_menu_callback(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "admin_panel")
+@require_admin
 async def admin_panel_callback(callback: CallbackQuery):
     logger.info("=== CALLBACK admin_panel === user_id=" + str(callback.from_user.id) + " ADMIN_IDS=" + str(ADMIN_IDS))
     if callback.from_user.id not in ADMIN_IDS:
@@ -1079,6 +1084,7 @@ async def admin_panel_callback(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data.startswith("invite_"))
+@require_admin
 async def create_invite(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("Нет прав", show_alert=True)
@@ -1108,6 +1114,7 @@ async def create_invite(callback: CallbackQuery):
     await callback.answer("Ссылка создана!")
 
 @dp.callback_query(F.data == "list_invites")
+@require_admin
 async def list_active_invites(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("❌ Нет прав", show_alert=True)
@@ -1141,6 +1148,7 @@ async def list_active_invites(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "back_to_admin")
+@require_admin
 async def back_to_admin_panel(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("❌ Нет прав", show_alert=True)
@@ -1150,6 +1158,7 @@ async def back_to_admin_panel(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "bot_stats")
+@require_admin
 async def show_bot_stats(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("❌ Нет прав", show_alert=True)
@@ -1172,6 +1181,7 @@ async def show_bot_stats(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data.startswith("deactivate_"))
+@require_admin
 async def deactivate_invite(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("❌ Нет прав", show_alert=True)
@@ -1339,6 +1349,7 @@ async def process_answer(message: Message, state: FSMContext):
 
 # ==================== ЗАПУСК ====================
 @dp.callback_query(F.data == "list_users")
+@require_admin
 async def list_users(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("Нет прав", show_alert=True)
@@ -1374,6 +1385,7 @@ async def list_users(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "grant_help")
+@require_admin
 async def grant_help(callback: CallbackQuery):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("Нет прав", show_alert=True)
@@ -1397,6 +1409,7 @@ async def grant_help(callback: CallbackQuery):
 
 
 @dp.message(Command("grant"))
+@require_admin
 async def cmd_grant(message: Message):
     """Выдать доступ пользователю и создать ссылку для него"""
     if message.from_user.id not in ADMIN_IDS:
@@ -1457,6 +1470,7 @@ async def cmd_grant(message: Message):
 
 
 @dp.message(Command("revoke"))
+@require_admin
 async def cmd_revoke(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
@@ -1475,6 +1489,7 @@ async def cmd_revoke(message: Message):
 
 
 @dp.message(Command("users"))
+@require_admin
 async def cmd_users(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
