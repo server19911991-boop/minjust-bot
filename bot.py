@@ -86,13 +86,14 @@ class Question:
     is_from_exam: bool = False
 
     def get_correct_texts(self) -> List[str]:
-        return [self.options[i] for i in self.correct_options]
+        return [self.options[i] for i in self.correct_options if 0 <= i < len(self.options)]
 
     def is_correct(self, selected: Set[int]) -> bool:
-        return set(self.correct_options) == selected
+        valid = {i for i in self.correct_options if 0 <= i < len(self.options)}
+        return valid == selected
 
     def get_correct_numbers(self) -> List[int]:
-        return [i + 1 for i in sorted(self.correct_options)]
+        return [i + 1 for i in sorted(self.correct_options) if 0 <= i < len(self.options)]
 
 
 @dataclass
@@ -1374,13 +1375,17 @@ async def process_answer(message: Message, state: FSMContext):
         session.score += 1
         response = "✅ **Правильно!**\n\n"
     else:
-        correct_texts = question.get_correct_texts()
-        correct_nums = question.get_correct_numbers()
-        response = (
-            f"❌ **Неправильно.**\n\n"
-            f"Правильные ответы: `{', '.join(map(str, correct_nums))}`\n"
-            f"({', '.join(correct_texts)})\n\n"
-        )
+        try:
+            correct_texts = question.get_correct_texts()
+            correct_nums = question.get_correct_numbers()
+            response = (
+                f"❌ **Неправильно.**\n\n"
+                f"Правильные ответы: `{', '.join(map(str, correct_nums))}`\n"
+                f"({', '.join(correct_texts)})\n\n"
+            )
+        except Exception as e:
+            logger.warning(f"Ошибка в вопросе id={question.id}: {e}")
+            response = "❌ **Неправильно.**\n\n" 
     if question.article:
         response += f"📚 Источник: {question.article}"
     await message.answer(response)
