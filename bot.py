@@ -667,9 +667,6 @@ async def cmd_exam(message: Message, state: FSMContext):
 @dp.message(Command("admin_panel"))
 @require_admin
 async def cmd_admin_panel(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🔑 Инвайт 10 дней", callback_data="invite_10"),
@@ -696,9 +693,6 @@ async def cmd_admin_panel(message: Message):
 @dp.message(Command("guest_invite"))
 @require_admin
 async def cmd_guest_invite(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
     
     parts = message.text.split()
     hours = int(parts[1]) if len(parts) > 1 else 24
@@ -724,9 +718,6 @@ async def cmd_guest_invite(message: Message):
 @dp.message(Command("guest_list"))
 @require_admin
 async def cmd_guest_list(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
     if not guest_invite_manager.invites:
         await message.answer("📭 Нет активных гостевых инвайтов")
         return
@@ -745,9 +736,6 @@ async def cmd_guest_list(message: Message):
 @dp.message(Command("guest_deactivate"))
 @require_admin
 async def cmd_guest_deactivate(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ У вас нет прав для этой команды")
-        return
     parts = message.text.split()
     if len(parts) < 2:
         await message.answer("❌ Использование: /guest_deactivate КОД")
@@ -1029,9 +1017,6 @@ async def admin_panel_menu_callback(callback: CallbackQuery):
     user_id = callback.from_user.id
     logger.info("=== ADMIN_PANEL_MENU === user_id=" + str(user_id))
 
-    if user_id not in ADMIN_IDS:
-        await callback.answer("Ваш ID " + str(user_id) + " не в списке админов", show_alert=True)
-        return
 
     # Формируем текст и клавиатуру прямо здесь — без вызова cmd_admin_panel
     admin_text = (
@@ -1076,9 +1061,6 @@ async def admin_panel_menu_callback(callback: CallbackQuery):
 @require_admin
 async def admin_panel_callback(callback: CallbackQuery):
     logger.info("=== CALLBACK admin_panel === user_id=" + str(callback.from_user.id) + " ADMIN_IDS=" + str(ADMIN_IDS))
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("DEBUG: ADMIN_IDS=" + str(ADMIN_IDS) + ", ваш ID=" + str(callback.from_user.id), show_alert=True)
-        return
     await cmd_admin_panel(callback.message)
     await callback.answer()
 
@@ -1086,9 +1068,6 @@ async def admin_panel_callback(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("invite_"))
 @require_admin
 async def create_invite(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("Нет прав", show_alert=True)
-        return
     days = int(callback.data.replace("invite_", ""))
     code = access_manager.create_invite(callback.from_user.id, duration_days=days)
     bot_username = (await bot.get_me()).username
@@ -1116,9 +1095,6 @@ async def create_invite(callback: CallbackQuery):
 @dp.callback_query(F.data == "list_invites")
 @require_admin
 async def list_active_invites(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ Нет прав", show_alert=True)
-        return
     if not guest_invite_manager.invites:
         await callback.message.edit_text(
             "📭 **Нет активных инвайтов**",
@@ -1150,9 +1126,6 @@ async def list_active_invites(callback: CallbackQuery):
 @dp.callback_query(F.data == "back_to_admin")
 @require_admin
 async def back_to_admin_panel(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ Нет прав", show_alert=True)
-        return
     await cmd_admin_panel(callback.message)
     await callback.answer()
 
@@ -1160,9 +1133,6 @@ async def back_to_admin_panel(callback: CallbackQuery):
 @dp.callback_query(F.data == "bot_stats")
 @require_admin
 async def show_bot_stats(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ Нет прав", show_alert=True)
-        return
     total_questions = len(question_loader.questions)
     total_categories = len([c for c in question_loader.categories.values() if c.count > 0])
     active_invites = sum(1 for inv in guest_invite_manager.invites.values() 
@@ -1183,9 +1153,6 @@ async def show_bot_stats(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("deactivate_"))
 @require_admin
 async def deactivate_invite(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ Нет прав", show_alert=True)
-        return
     code = callback.data.replace("deactivate_", "")
     if code not in guest_invite_manager.invites:
         await callback.answer("❌ Инвайт не найден", show_alert=True)
@@ -1351,9 +1318,6 @@ async def process_answer(message: Message, state: FSMContext):
 @dp.callback_query(F.data == "list_users")
 @require_admin
 async def list_users(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("Нет прав", show_alert=True)
-        return
     users = access_manager.get_all_users()
     now = time.time()
     if not users:
@@ -1387,9 +1351,6 @@ async def list_users(callback: CallbackQuery):
 @dp.callback_query(F.data == "grant_help")
 @require_admin
 async def grant_help(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("Нет прав", show_alert=True)
-        return
     text = "➕ Выдача доступа вручную\n\n"
     text += "Используйте команды:\n\n"
     text += "/grant user_id days — выдать доступ на N дней\n"
@@ -1412,8 +1373,6 @@ async def grant_help(callback: CallbackQuery):
 @require_admin
 async def cmd_grant(message: Message):
     """Выдать доступ пользователю и создать ссылку для него"""
-    if message.from_user.id not in ADMIN_IDS:
-        return
     parts = message.text.split()
     if len(parts) < 3:
         await message.answer(
@@ -1472,8 +1431,6 @@ async def cmd_grant(message: Message):
 @dp.message(Command("revoke"))
 @require_admin
 async def cmd_revoke(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
     parts = message.text.split()
     if len(parts) < 2:
         await message.answer("Использование: /revoke user_id")
@@ -1491,8 +1448,6 @@ async def cmd_revoke(message: Message):
 @dp.message(Command("users"))
 @require_admin
 async def cmd_users(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
     users = access_manager.get_all_users()
     if not users:
         await message.answer("👥 Пользователей пока нет.")
