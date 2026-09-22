@@ -7,7 +7,7 @@ from typing import Dict, Optional
 
 
 class AccessManager:
-    def __init__(self, data_file='users_access.json'):
+    def __init__(self, data_file='/app/data/users_access.json'):
         self.data_file = data_file
         self.data = {'users': {}, 'invites': {}}
         self.load()

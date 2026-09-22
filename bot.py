@@ -215,7 +215,7 @@ class UserSession:
 # ==================== УПРАВЛЕНИЕ ИНВАЙТАМИ ====================
 class GuestInviteManager:
     def __init__(self):
-        self.invites_file = "guest_invites.json"
+        self.invites_file = "/app/data/guest_invites.json"
         self.invites = {}
         self.load_invites()
 
