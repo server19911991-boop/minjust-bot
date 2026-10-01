@@ -935,7 +935,10 @@ async def handle_count_choice(callback: CallbackQuery, state: FSMContext):
     save_session(session)
     
     await state.set_state(ExamStates.exam_in_progress)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await send_question(callback.message, user_id, state)
     await callback.answer(f"🚀 Начинаем экзамен из {count} вопросов!")
 
@@ -967,7 +970,10 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
         )
     except Exception as e:
         if "message is not modified" in str(e):
-            await callback.message.delete()
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
             await callback.message.answer(
                 "📚 **Главное меню:**\n\nВыберите тему для подготовки:",
                 reply_markup=get_main_menu_keyboard(user_id)
@@ -1276,7 +1282,10 @@ async def review_mistakes(callback: CallbackQuery, state: FSMContext):
     session.is_finished = False
     session.question_count = len(mistake_questions)
     await state.set_state(ExamStates.exam_in_progress)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await send_question(callback.message, user_id, state)
     await callback.answer(f"📝 Повторяем {len(mistake_questions)} ошибок")
 
